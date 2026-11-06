@@ -60,6 +60,10 @@ cargo run -q -- bi "<2>_2<2>_3 T |- <1>(<2>_3 T)"      # RC_BI（Pakhomov–Laza
 cargo run -q -- bi "D T |- <2>_2 T" --model   # 偽なら反例モデル M_A を表示
 cargo run -q -- bimodel "D <1> T"             # 有限モデル M_A とフレーム条件の検査
 cargo run --release -p wormlab-core --example rcbi_sizes # M_A の大きさの実験
+cargo run -q -- bicmp "<1>_3<2>_3 T" "<2>_2<2>_3 T"     # RC_BI の順序 <¹₁ で比較
+cargo run -q -- bifs "<2>_2<2>_3 T" 4         # 式の形と基本列 (A)_1..4（Γ₀ への基本列）
+cargo run -q -- bibattle "D T"                # RC_BI の式の battle
+cargo run --release -p wormlab-core --example rcbi_order # 線形性（Thm 4.11）と基本列の共終性の実験
 cargo run -q -- thm52 3                       # ATR₀ から独立な命題の出発点
 cargo run -q -- fs "ε_0" 5                    # 標準の基本列 ε_0[n] と、worm が作る列の比較
 cargo run -q -- hardy "ω^2" 10                # Hardy 関数 H_α(n)・急増加関数 f_α(n)
@@ -88,7 +92,7 @@ worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が�
 - [x] RC の導出の構成と検査器（変数・∧ を含む一般の式、順序数モダリティ）
 - [x] Bracket Calculus：順序数を使わない括弧語の比較・正規形、BC の判定・導出・検査器
 - [x] RC_BI 手順 1：式・パーサ、有限モデル M_A による閉じた式の判定（arXiv:2610.20115）
-- [ ] RC_BI 手順 2：順序 <¹₁・≡¹₁、基本列 (A)_n、線形性の検証
+- [x] RC_BI 手順 2：順序 <¹₁・≡¹₁、基本列 (A)_n、線形性の検証
 - [ ] RC_BI 手順 3：o(A) の計算（ε₀ → Γ₀ → Bachmann–Howard）
 - [ ] 段階3: Web 可視化
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

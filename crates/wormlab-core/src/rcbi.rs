@@ -316,23 +316,25 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1;
         let start = self.pos;
-        while let Some(c) = at(self, 0) {
-            if c.is_ascii_alphanumeric() || c == 'ω' {
-                self.pos += 1;
-            } else {
-                break;
+        // ω の綴り（"_ω"・"_omega"・"_w"）。後ろに続く文字とは切り離して読む（"_wT" は ω と ⊤）
+        let rest: String = self.chars[self.pos..].iter().take(5).collect();
+        for (word, len) in [("omega", 5), ("ω", 1), ("w", 1)] {
+            if rest.starts_with(word) {
+                self.pos += len;
+                return Ok(Some(Rank::Omega));
             }
         }
+        // 数字だけを読む（"_2T" は 2 と ⊤）
+        while at(self, 0).is_some_and(|c| c.is_ascii_digit()) {
+            self.pos += 1;
+        }
         let s: String = self.chars[start..self.pos].iter().collect();
-        match s.as_str() {
-            "ω" | "w" | "omega" => Ok(Some(Rank::Omega)),
-            _ => match s.parse() {
-                Ok(n) => Ok(Some(Rank::Fin(n))),
-                Err(_) => {
-                    self.pos = start;
-                    self.error("添字が読めません（数字か ω）")
-                }
-            },
+        match s.parse() {
+            Ok(n) => Ok(Some(Rank::Fin(n))),
+            Err(_) => {
+                self.pos = start;
+                self.error("添字が読めません（数字か ω）")
+            }
         }
     }
 
@@ -1090,6 +1092,8 @@ mod tests {
         assert_eq!(f("⟨2⟩₂⟨2⟩₃⊤ ∧ ↓⊤"), f("<2>_2 <2>_3 T & D T"));
         assert_eq!(f("<1>_w N p").to_string(), "⟨1⟩_ω∇p");
         assert_eq!(f("<1>T"), Formula::one(1, Formula::Top)); // 添字を省くと ⟨1⟩₁
+        assert_eq!(f("<2>_3<1>_2T"), Formula::two(3, Formula::one(2, Formula::Top))); // "_2T" は 2 と ⊤
+        assert_eq!(f("<1>_wT"), Formula::one_omega(Formula::Top));
         assert_eq!(f("<2>T"), Formula::two(2, Formula::Top)); // ⟨2⟩₂
         for s in ["⊤", "↓(⟨1⟩₁⊤ ∧ ⟨2⟩₃⊤)", "p ∧ (q ∧ r)", "⟨1⟩₁₂⊤", "∇↓⟨1⟩_ω⊤"] {
             assert_eq!(f(s).to_string().parse::<Formula>().unwrap(), f(s), "{s}");

@@ -20,6 +20,9 @@
 //!   wormlab thm52 3                  Thm 52（ATR₀ から独立）の出発点 a'_m
 //!   wormlab bi "<2>_2 T |- <1> D T"  RC_BI（Pakhomov–Lazar）で判定（変数なしの式。--model で M_A を表示）
 //!   wormlab bimodel "D <1> T"        RC_BI の有限モデル M_A とフレーム条件の検査
+//!   wormlab bicmp "D T" "<2>_2 T"    RC_BI の順序 <¹₁（B ⊢ ⟨1⟩₁A）・≡¹₁（∇A ⊣⊢ ∇B）で比較
+//!   wormlab bifs "<2>_2 T" [k]       式の形（零・後続・極限）と基本列 (A)_1..k（Def 4.6）
+//!   wormlab bibattle "<1>_2 T" [上限] RC_BI の式の battle（後続なら直前、極限なら (A)_{k+1}）
 //!   wormlab fs "ε_0" [k]             標準の基本列 α[0..k] と、worm が作る列の比較
 //!   wormlab hardy "ω^2" 10           Hardy 関数 H_α(n) と急増加関数 f_α(n)
 //!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
@@ -33,7 +36,7 @@ use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
 use wormlab_core::hierarchy::{self, Budget};
 use wormlab_core::bc::{self, BSeq};
-use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc, rcbi, rcproof};
+use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc, rcbi, rcbi_order, rcproof};
 
 fn parse_ordinal(s: &str) -> Result<Veblen, String> {
     s.parse::<Veblen>().map_err(|e| e.to_string())
@@ -109,6 +112,24 @@ fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<()
         println!("  （--proof で導出の全行を表示）");
     }
     Ok(())
+}
+
+/// RC_BI の W_BI の式として読む。
+fn parse_wbi(s: &str) -> Result<rcbi::Formula, String> {
+    let a: rcbi::Formula = s.parse().map_err(|e: rcbi::ParseError| e.to_string())?;
+    if !a.in_wbi() {
+        return Err(format!("{a} は W_BI の式ではありません（変数・∇・⟨1⟩_ω を含まない式だけ）"));
+    }
+    Ok(a)
+}
+
+fn sym(o: Option<Ordering>) -> &'static str {
+    match o {
+        Some(Ordering::Less) => "<¹₁",
+        Some(Ordering::Equal) => "≡¹₁",
+        Some(Ordering::Greater) => ">¹₁",
+        None => "?（比較できない：Thm 4.11 に反する）",
+    }
 }
 
 /// Bracket Calculus の判定と導出。判定・導出・検査はすべて順序数を使わない。
@@ -469,6 +490,56 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        [cmd, a, b] if cmd == "bicmp" => {
+            let (x, y) = (parse_wbi(a)?, parse_wbi(b)?);
+            println!("{x}  {}  {y}", sym(rcbi_order::compare(&x, &y)));
+            Ok(())
+        }
+        [cmd, a, rest @ ..] if cmd == "bifs" && rest.len() <= 1 => {
+            let x = parse_wbi(a)?;
+            let k: u32 = match rest.first() {
+                Some(s) => s.parse().map_err(|_| format!("k が数値ではありません: {s}"))?,
+                None => 4,
+            };
+            match rcbi_order::form(&x)? {
+                rcbi_order::Form::Zero => println!("{x} は零（⊤ と ≡¹₁、o = 0）"),
+                rcbi_order::Form::Successor(p) => {
+                    println!("{x} は後続形");
+                    println!("  直前：{p}（o(A) = o(直前) + 1）");
+                }
+                rcbi_order::Form::Limit => {
+                    println!("{x} は極限形。基本列 (A)_n（Def 4.6）:");
+                    let mut prev: Option<rcbi::Formula> = None;
+                    for n in 1..=k {
+                        let y = rcbi_order::approx(&x, n).expect("極限形");
+                        let below = if rcbi_order::lt(&y, &x) { "< A" } else { "≮ A（Lemma 4.7 に反する）" };
+                        let step = match &prev {
+                            Some(p) => format!("、前の項と {}", sym(rcbi_order::compare(p, &y))),
+                            None => String::new(),
+                        };
+                        println!("  ({n}) {}    [{below}{step}]", shorten(y.to_string(), 100));
+                        prev = Some(y);
+                    }
+                }
+            }
+            Ok(())
+        }
+        [cmd, a, rest @ ..] if cmd == "bibattle" && rest.len() <= 1 => {
+            let x = parse_wbi(a)?;
+            let limit: usize = match rest.first() {
+                Some(s) => s.parse().map_err(|_| format!("上限が数値ではありません: {s}"))?,
+                None => 30,
+            };
+            let mut steps = 0;
+            for (i, cur) in rcbi_order::battle(&x).take(limit + 1).enumerate() {
+                println!("{i:>4}: {}", shorten(cur.to_string(), 100));
+                steps = i;
+            }
+            if steps == limit {
+                println!("（{limit} ステップで打ち切り）");
+            }
+            Ok(())
+        }
         [cmd, s] if cmd == "bc" => {
             let goal: BSeq = s.parse().map_err(|e: bc::ParseError| e.to_string())?;
             bc_cmd(&goal, full_proof, json)
@@ -559,6 +630,9 @@ const USAGE: &str = "使い方:
   wormlab bc     \"φ |- ψ\"          Bracket Calculus で判定。真なら BC の導出（--proof で全行）
   wormlab bi     \"A |- B\"          RC_BI（Pakhomov–Lazar）で判定（変数なし。--model で M_A を表示）
   wormlab bimodel <式>             RC_BI の有限モデル M_A とフレーム条件の検査
+  wormlab bicmp  <式> <式>         RC_BI の順序 <¹₁・≡¹₁ で比較
+  wormlab bifs   <式> [k]          式の形と基本列 (A)_1..k
+  wormlab bibattle <式> [上限]     RC_BI の式の battle
   wormlab bbattle <括弧語> [上限]  括弧語の battle
   wormlab thm52  <m>               ATR₀ から独立な命題（Thm 52）の出発点 a'_m
   wormlab fs     <順序数> [k]      標準の基本列 α[0..k] と worm が作る列
