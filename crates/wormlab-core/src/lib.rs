@@ -20,6 +20,7 @@
 //! 段階2（ε0 を超える）：
 //! - [`veblen`]：Γ0 未満の順序数（Veblen 関数 φ による正規形）
 //! - [`letter`]：worm の文字の型（u32 と Veblen）。worm・RC・head/body・WC はこれについて汎用
+//! - [`transfinite`]：文字が順序数の worm の順序数 o(A)（超指数関数）、逆写像、Π 順序数 Ω_ξ
 
 pub mod bitset;
 pub mod headbody;
@@ -28,6 +29,7 @@ pub mod ordinal;
 pub mod proof;
 pub mod rc;
 pub mod spf;
+pub mod transfinite;
 pub mod veblen;
 pub mod wc;
 pub mod worm;

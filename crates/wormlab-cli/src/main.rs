@@ -11,7 +11,7 @@
 //!   wormlab wclt   0 "1 1" "2"       A <_n B（B ⊢ nA）の WC 証明
 //!   wormlab ordinal "ω^ε_0 + 1"      Γ0 未満の順序数を正規形にする（2 つ渡すと比較）
 //!
-//! cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
+//! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
 
 use serde_json::json;
 use std::cmp::Ordering;
@@ -59,6 +59,36 @@ fn run(args: &[String]) -> Result<(), String> {
     let args = args.as_slice();
     // 【Rust メモ】スライスに対するパターンマッチで引数の形を場合分けできる
     match args {
+        [cmd, a] if cmd == "ord" && !all_nat(&[a]) => {
+            // 文字が順序数の worm：o(A) < Γ0、標準形、Ω_ξ（ξ = 0, 1, 2 と A に現れる文字）
+            let w = parse_o(a)?;
+            let mut xis: Vec<Veblen> = (0..3).map(Veblen::nat).collect();
+            xis.extend(w.letters().iter().cloned());
+            xis.sort();
+            xis.dedup();
+            let pis: Vec<(Veblen, Veblen)> = xis.into_iter().map(|x| (x.clone(), w.pi_ordinal(&x))).collect();
+            if json {
+                let pi_json: Vec<_> = pis.iter().map(|(x, p)| json!({ "xi": x, "omega": p })).collect();
+                let v = json!({
+                    "worm": w,
+                    "formula": w.to_formula(),
+                    "ordinal": w.ordinal(),
+                    "normal_form": w.normal_form(),
+                    "pi_ordinals": pi_json,
+                });
+                println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+            } else {
+                println!("worm      : {w}");
+                println!("formula   : {}", w.to_formula());
+                println!("o(A)      : {}", w.ordinal());
+                println!("normal    : {}", w.normal_form());
+                for (x, p) in &pis {
+                    let label = format!("Ω_{x}");
+                    println!("{label:<10}: {p}");
+                }
+            }
+            Ok(())
+        }
         [cmd, a] if cmd == "ord" => {
             let w = parse(a)?;
             let k = w.letters().iter().max().map_or(0, |m| m + 1);
@@ -105,23 +135,29 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         [cmd, a, b] if cmd == "cmp" && !all_nat(&[a, b]) => {
-            // 文字が順序数の worm：head/body と RC の 2 つの方法で比べる
+            // 文字が順序数の worm：順序数 o・head/body・RC の 3 つの方法で比べる
             let (x, y) = (parse_o(a)?, parse_o(b)?);
+            let rel = match x.cmp0(&y) {
+                Ordering::Less => "<_0",
+                Ordering::Equal => "≡",
+                Ordering::Greater => ">_0",
+            };
+            let by_o = (x.cmp0(&y) == Ordering::Less, y.cmp0(&x) == Ordering::Less);
             let mut hb = headbody::HeadBody::new();
             let by_hb = (hb.lt(x.letters(), y.letters()), hb.lt(y.letters(), x.letters()));
             let by_rc = (x.lt_n(&y, Veblen::zero()), y.lt_n(&x, Veblen::zero()));
-            let rel = match by_hb {
-                (true, _) => "<_0",
-                (_, true) => ">_0",
-                _ => "≡",
-            };
-            let agree = by_hb == by_rc;
+            let agree = by_hb == by_o && by_rc == by_o;
             if json {
-                let v = json!({ "a": x, "b": y, "relation": rel, "methods_agree": agree });
+                let v = json!({
+                    "a": x, "b": y, "relation": rel,
+                    "ordinal_a": x.ordinal(), "ordinal_b": y.ordinal(),
+                    "methods_agree": agree,
+                });
                 println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
             } else {
                 println!("{x}  {rel}  {y}");
-                println!("  RC / head-body の判定: {}", if agree { "一致" } else { "不一致（バグです）" });
+                println!("  o = {}  vs  {}", x.ordinal(), y.ordinal());
+                println!("  順序数 / RC / head-body の判定: {}", if agree { "一致" } else { "不一致（バグです）" });
             }
             Ok(())
         }
@@ -274,7 +310,7 @@ const USAGE: &str = "使い方:
   wormlab wclt   <n> <worm> <worm> A <_n B（B ⊢ nA）の WC 証明
   wormlab ordinal <順序数> [<順序数>]  Γ0 未満の順序数の正規形（2 つなら比較）
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
-  文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（cmp・lt・wc・wclt で使える）
+  文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（ord・cmp・lt・wc・wclt で使える）
 順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）";
 
 fn main() -> ExitCode {
