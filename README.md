@@ -37,7 +37,10 @@ cargo run -q -- ord "2 0 1 1"                 # 順序数・標準形・Π 順�
 cargo run -q -- cmp "1 1" "1 0 1 0 1"         # <_0 で比較（3 つの方法で確認）
 cargo run -q -- table "1 1" "2" "3" > t.csv   # 複数の worm を CSV に
 cargo run -q -- battle "1 1" 20               # worm battle
-cargo run -q -- rc "<2>p |- <0><1>p"          # RC で判定（偽なら反例モデル）
+cargo run -q -- rc "<2>p |- <0><1>p"          # RC で判定（真なら導出を作って検査、偽なら反例モデル）
+cargo run -q -- rc "<1>p & <0>q |- <1>(p & <0>q)" --proof   # RC の導出を全行表示
+cargo run -q -- rc "<ω+1>p & <ω>q |- <ω+1>(p & <ω>q)"      # モダリティが順序数でも可
+cargo run --release -p wormlab-core --example rc_sizes      # RC 導出の大きさの実験
 cargo run -q -- lt 1 "0 2" "1"                # 一般の worm で A <_n B か
 cargo run -q -- wclt 0 "1 1" "2"              # 1 1 <_0 2 の WC 証明（検査済み）
 cargo run -q -- wc "2 0 1 |- 1 0 1" --json    # worm シーケントの WC 証明を JSON で
@@ -74,5 +77,6 @@ worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が�
 - [x] 段階2-4: 順序数を文字に持つ worm の順序数 o（超指数関数）・逆写像・Ω_ξ
 - [x] 段階2-5: 括弧記法（Beklemishev の autonomous worm）、正規形、基本列と battle
 - [x] 順序数の標準基本列 α[n]（Γ0 未満）、Hardy 階層・急増加関数、battle の長さの比較
+- [x] RC の導出の構成と検査器（変数・∧ を含む一般の式、順序数モダリティ）
 - [ ] 段階3: Web 可視化
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

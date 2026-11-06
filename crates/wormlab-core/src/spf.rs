@@ -143,15 +143,16 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-struct Parser<'a> {
+struct Parser<'a, L> {
     input: &'a str,
     chars: Vec<char>,
     pos: usize,
+    _letter: std::marker::PhantomData<L>,
 }
 
-impl<'a> Parser<'a> {
+impl<'a, L: Letter> Parser<'a, L> {
     fn new(input: &'a str) -> Self {
-        Parser { input, chars: input.chars().collect(), pos: 0 }
+        Parser { input, chars: input.chars().collect(), pos: 0, _letter: std::marker::PhantomData }
     }
 
     fn error<T>(&self, msg: &str) -> Result<T, ParseError> {
@@ -178,7 +179,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn formula(&mut self) -> Result<Spf, ParseError> {
+    fn formula(&mut self) -> Result<Spf<L>, ParseError> {
         let mut acc = self.unary()?;
         while self.eat('∧') || self.eat('&') {
             let rhs = self.unary()?;
@@ -187,28 +188,33 @@ impl<'a> Parser<'a> {
         Ok(acc)
     }
 
-    fn number(&mut self) -> Result<u32, ParseError> {
-        self.skip_ws();
+    /// 閉じ括弧 `close` までをモダリティの番号として読む（自然数でも順序数でもよい）。
+    fn modality(&mut self, close: char) -> Result<L, ParseError> {
         let start = self.pos;
-        while self.pos < self.chars.len() && self.chars[self.pos].is_ascii_digit() {
+        while self.pos < self.chars.len() && self.chars[self.pos] != close {
             self.pos += 1;
         }
-        if start == self.pos {
-            return self.error("モダリティの番号が必要です");
+        if self.pos >= self.chars.len() {
+            self.pos = start;
+            return self.error(&format!("'{close}' が必要です"));
         }
         let s: String = self.chars[start..self.pos].iter().collect();
-        s.parse().or_else(|_| self.error("番号が大きすぎます"))
+        self.pos += 1; // 閉じ括弧
+        match L::parse_letter(&s) {
+            Some(n) => Ok(n),
+            None => {
+                self.pos = start;
+                self.error("モダリティの番号が読めません")
+            }
+        }
     }
 
-    fn unary(&mut self) -> Result<Spf, ParseError> {
+    fn unary(&mut self) -> Result<Spf<L>, ParseError> {
         match self.peek() {
             Some(open @ ('<' | '⟨')) => {
                 self.pos += 1;
-                let n = self.number()?;
                 let close = if open == '<' { '>' } else { '⟩' };
-                if !self.eat(close) {
-                    return self.error(&format!("'{close}' が必要です"));
-                }
+                let n = self.modality(close)?;
                 Ok(Spf::dia(n, self.unary()?))
             }
             Some('⊤') => {
@@ -250,11 +256,12 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl FromStr for Spf {
+/// `"<1>(p & <0>q)"` や、順序数のモダリティ `"<ω+1>p ∧ <ε_0>q"` を読む。
+impl<L: Letter> FromStr for Spf<L> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut p = Parser::new(s);
+        let mut p = Parser::<L>::new(s);
         let a = p.formula()?;
         p.finish()?;
         Ok(a)
@@ -274,8 +281,15 @@ impl<L: Letter> fmt::Display for Sequent<L> {
     }
 }
 
+/// JSON などでは文字列として書き出す。
+impl<L: Letter> serde::Serialize for Spf<L> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
 /// `"A |- B"` または `"A ⊢ B"` を読む。
-impl FromStr for Sequent {
+impl<L: Letter> FromStr for Sequent<L> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -318,6 +332,14 @@ mod tests {
         assert_eq!(a.to_string(), "⟨1⟩⟨0⟩⟨2⟩⊤");
         assert_eq!(a.as_worm(), Some(w));
         assert_eq!("p".parse::<Spf>().unwrap().as_worm(), None);
+    }
+
+    #[test]
+    fn ordinal_modalities() {
+        use crate::veblen::Veblen;
+        let a: Spf<Veblen> = "<ω+1>p ∧ ⟨ε_0⟩<0>q".parse().unwrap();
+        assert_eq!(a.to_string(), "⟨ω + 1⟩p ∧ ⟨ε_0⟩⟨0⟩q");
+        assert_eq!(a.to_string().parse::<Spf<Veblen>>().unwrap(), a);
     }
 
     #[test]

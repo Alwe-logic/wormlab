@@ -11,6 +11,7 @@
 //! P1：
 //! - [`spf`]：強正値式とシーケント（パーサつき）
 //! - [`rc`]：Reflection Calculus の判定器（標準木＋閉包＋モデル検査）
+//! - [`rcproof`]：RC の導出の構成と検査（変数・∧ を含む一般の強正値式、順序数モダリティも可）
 //!
 //! 段階1：
 //! - [`proof`]：証明 DAG と汎用の検査器（体系ごとの違いは 1 ステップの検査だけ）
@@ -32,6 +33,7 @@ pub mod letter;
 pub mod ordinal;
 pub mod proof;
 pub mod rc;
+pub mod rcproof;
 pub mod spf;
 pub mod transfinite;
 pub mod veblen;

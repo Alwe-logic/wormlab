@@ -5,7 +5,8 @@
 //!   wormlab table  "1 0" "2" …      複数の worm を CSV で（引数がなければ標準入力から 1 行 1 worm）
 //!   wormlab cmp    "1 1" "2"        2 つの worm を <_0 で比較（--json 可）
 //!   wormlab battle "1 1 1" [上限]    worm battle を実行
-//!   wormlab rc     "<2>p |- <0><1>p" RC で判定（偽なら反例モデル）
+//!   wormlab rc     "<2>p |- <0><1>p" RC で判定。真なら導出を作って検査、偽なら反例モデル
+//!                                    （--proof で導出の全行、--json で JSON。<ω+1> などの順序数も可）
 //!   wormlab lt     1 "0 2" "1"       一般の worm で A <_n B か
 //!   wormlab wc     "1 1 |- 0 1 0 1"  worm シーケントの WC 証明（--json で JSON）
 //!   wormlab wclt   0 "1 1" "2"       A <_n B（B ⊢ nA）の WC 証明
@@ -26,7 +27,7 @@ use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
 use wormlab_core::hierarchy::{self, Budget};
-use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc};
+use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc, rcproof};
 
 fn parse_ordinal(s: &str) -> Result<Veblen, String> {
     s.parse::<Veblen>().map_err(|e| e.to_string())
@@ -75,9 +76,39 @@ fn show_proof<L: Letter>(p: &WcProof<L>, json: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// RC の判定と導出（モダリティは自然数でも順序数でもよい）。
+fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<(), String> {
+    let d = rc::decide(&seq.lhs, &seq.rhs);
+    if !d.holds {
+        println!("RC ⊬ {}", d.sequent);
+        println!("反例：左辺の閉包モデルの根 0 で右辺が偽");
+        print!("{}", d.model);
+        return Ok(());
+    }
+    let (p, st) = rcproof::derive(&seq.lhs, &seq.rhs)?;
+    rcproof::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    if show_proof {
+        print!("{p}");
+    }
+    println!("RC で証明: {}", d.sequent);
+    println!(
+        "  導出：検査済み、DAG {} ノード / 木に展開すると {} ノード / 高さ {}（書き足した事実 {} 個 / 飽和で得た事実 {} 個）",
+        p.dag_size(), p.tree_size(), p.height(), st.facts_used, st.facts_total
+    );
+    if !show_proof {
+        println!("  （--proof で導出の全行を表示）");
+    }
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let json = args.iter().any(|a| a == "--json");
-    let args: Vec<String> = args.iter().filter(|a| *a != "--json").cloned().collect();
+    let full_proof = args.iter().any(|a| a == "--proof");
+    let args: Vec<String> = args.iter().filter(|a| *a != "--json" && *a != "--proof").cloned().collect();
     let args = args.as_slice();
     // 【Rust メモ】スライスに対するパターンマッチで引数の形を場合分けできる
     match args {
@@ -231,18 +262,14 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
-        [cmd, s] if cmd == "rc" => {
-            let seq: Sequent = s.parse().map_err(|e: wormlab_core::spf::ParseError| e.to_string())?;
-            let d = rc::decide(&seq.lhs, &seq.rhs);
-            if d.holds {
-                println!("RC ⊢ {}", d.sequent);
-            } else {
-                println!("RC ⊬ {}", d.sequent);
-                println!("反例：左辺の閉包モデルの根 0 で右辺が偽");
-                print!("{}", d.model);
-            }
-            Ok(())
-        }
+        [cmd, s] if cmd == "rc" => match s.parse::<Sequent>() {
+            Ok(seq) => rc_cmd(seq, full_proof, json),
+            // 自然数で読めなければ、モダリティが順序数のシーケントとして読む
+            Err(e) => match s.parse::<Sequent<Veblen>>() {
+                Ok(seq) => rc_cmd(seq, full_proof, json),
+                Err(_) => Err(e.to_string()),
+            },
+        },
         [cmd, n, a, b] if cmd == "lt" => {
             let say = |x: &dyn std::fmt::Display, n: &dyn std::fmt::Display, y: &dyn std::fmt::Display, ans: bool| {
                 println!("{x}  <_{n}  {y}  :  {}", if ans { "成り立つ" } else { "成り立たない" })
@@ -414,7 +441,7 @@ const USAGE: &str = "使い方:
   wormlab table  [<worm> …]        複数の worm を CSV で（引数なしなら標準入力から）
   wormlab cmp    <worm> <worm>     <_0 で比較（--json 可）
   wormlab battle <worm> [上限]     worm battle を実行
-  wormlab rc     \"A |- B\"          RC で判定（偽なら反例モデル）
+  wormlab rc     \"A |- B\"          RC で判定。真なら導出（--proof で全行）、偽なら反例モデル
   wormlab lt     <n> <worm> <worm> 一般の worm で A <_n B か
   wormlab wc     \"A |- B\"          worm シーケントの WC 証明（--json で JSON 出力）
   wormlab wclt   <n> <worm> <worm> A <_n B（B ⊢ nA）の WC 証明
