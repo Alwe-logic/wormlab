@@ -46,6 +46,10 @@ cargo run -q -- ordinal "w^e_0 + phi(2,0)"    # Γ0 未満の順序数を正規�
 cargo run -q -- ordinal "ε_0·2" "ω^(ε_0+1)"   # 2 つの順序数を比較
 cargo run -q -- cmp "3 3 3" "<ω>"             # 文字が順序数の worm も比較できる
 cargo run -q -- ord "<ω+1><0><ε_0>"           # 順序数の worm の o(A)（Γ0 未満）・標準形・Ω_ξ
+cargo run -q -- bracket "((()))"              # 括弧記法：((())) = ⟨ω⟩⊤ = ε_0
+cargo run -q -- bracketof "φ(2,0) + ε_0"      # 順序数 → 正規形の括弧語
+cargo run -q -- bbattle "(()())" 20           # 括弧語の battle（Γ0 版の worm battle）
+cargo run -q -- thm52 3                       # ATR₀ から独立な命題の出発点
 cargo run -q -- wclt 0 "<ω><ω>" "<ε_0>"       # 順序数の worm の WC 証明
 cargo doc --open                              # ドキュメントをブラウザで開く
 ```
@@ -64,6 +68,6 @@ worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が�
 - [x] 段階2-1: Veblen 表記（Γ0 未満の順序数）
 - [x] 段階2-2/3: 文字の汎用化（Letter trait）、順序数を文字に持つ worm で RC・head/body・WC
 - [x] 段階2-4: 順序数を文字に持つ worm の順序数 o（超指数関数）・逆写像・Ω_ξ
-- [ ] 段階2-5: 括弧記法（Beklemishev の autonomous worm）
+- [x] 段階2-5: 括弧記法（Beklemishev の autonomous worm）、正規形、基本列と battle
 - [ ] 段階3: Web 可視化
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

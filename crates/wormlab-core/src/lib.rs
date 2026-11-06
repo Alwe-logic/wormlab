@@ -21,8 +21,10 @@
 //! - [`veblen`]：Γ0 未満の順序数（Veblen 関数 φ による正規形）
 //! - [`letter`]：worm の文字の型（u32 と Veblen）。worm・RC・head/body・WC はこれについて汎用
 //! - [`transfinite`]：文字が順序数の worm の順序数 o(A)（超指数関数）、逆写像、Π 順序数 Ω_ξ
+//! - [`bracket`]：Beklemishev の括弧記法（文字も worm で書く）、正規形、基本列と battle
 
 pub mod bitset;
+pub mod bracket;
 pub mod headbody;
 pub mod letter;
 pub mod ordinal;
@@ -36,6 +38,7 @@ pub mod worm;
 
 pub use ordinal::Ordinal;
 pub use spf::{Sequent, Spf};
+pub use bracket::Bracket;
 pub use letter::Letter;
 pub use veblen::Veblen;
 pub use worm::Worm;

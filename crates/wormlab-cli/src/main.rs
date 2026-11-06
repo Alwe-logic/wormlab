@@ -10,6 +10,10 @@
 //!   wormlab wc     "1 1 |- 0 1 0 1"  worm シーケントの WC 証明（--json で JSON）
 //!   wormlab wclt   0 "1 1" "2"       A <_n B（B ⊢ nA）の WC 証明
 //!   wormlab ordinal "ω^ε_0 + 1"      Γ0 未満の順序数を正規形にする（2 つ渡すと比較）
+//!   wormlab bracket "((()))"         括弧語の順序数・翻訳・正規形（--json 可）
+//!   wormlab bracketof "ε_0 + 1"      順序数を正規形の括弧語にする
+//!   wormlab bbattle "(())()" [上限]  括弧語の battle（基本列を繰り返す）
+//!   wormlab thm52 3                  Thm 52（ATR₀ から独立）の出発点 a'_m
 //!
 //! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
 
@@ -18,7 +22,17 @@ use std::cmp::Ordering;
 use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
-use wormlab_core::{Letter, Sequent, Veblen, Worm, headbody, rc};
+use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc};
+
+fn parse_bracket(s: &str) -> Result<Bracket, String> {
+    s.parse::<Bracket>().map_err(|e| e.to_string())
+}
+
+/// 長い語は先頭だけ表示する。
+fn shorten(s: String, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max { s } else { format!("{} …（{} 文字）", s.chars().take(max).collect::<String>(), n) }
+}
 
 fn parse(s: &str) -> Result<Worm, String> {
     s.parse::<Worm>().map_err(|e| e.to_string())
@@ -295,6 +309,59 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{x}  {rel}  {y}");
             Ok(())
         }
+        [cmd, a] if cmd == "bracket" => {
+            let x = parse_bracket(a)?;
+            let nf = x.normal_form();
+            if json {
+                let v = json!({
+                    "bracket": x,
+                    "worm": x.to_worm(),
+                    "ordinal": x.ordinal(),
+                    "depth": x.depth(),
+                    "normal_form": nf,
+                    "is_normal": x.is_normal(),
+                });
+                println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+            } else {
+                println!("括弧語    : {x}");
+                println!("翻訳 a*   : {}", x.to_worm().to_formula());
+                println!("o*(a)     : {}", x.ordinal());
+                println!("深さ      : {}", x.depth());
+                println!("正規形    : {nf}{}", if x.is_normal() { "（この語自身が正規形）" } else { "" });
+            }
+            Ok(())
+        }
+        [cmd, a] if cmd == "bracketof" => {
+            let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+            let w = Bracket::from_ordinal(&x);
+            println!("{x}  =  {w}");
+            Ok(())
+        }
+        [cmd, a, rest @ ..] if cmd == "bbattle" && rest.len() <= 1 => {
+            let limit: usize = match rest.first() {
+                Some(s) => s.parse().map_err(|_| format!("上限が数値ではありません: {s}"))?,
+                None => 30,
+            };
+            let x = parse_bracket(a)?;
+            let mut steps = 0;
+            for (i, cur) in x.battle().take(limit + 1).enumerate() {
+                println!("{i:>4}: {}    o* = {}", shorten(cur.to_string(), 60), cur.ordinal());
+                steps = i;
+            }
+            if steps == limit {
+                println!("（{limit} ステップで打ち切り）");
+            }
+            Ok(())
+        }
+        [cmd, m] if cmd == "thm52" => {
+            let m: usize = m.parse().map_err(|_| format!("m が数値ではありません: {m}"))?;
+            let a = Bracket::thm52(m);
+            println!("a'_{m} = {a}");
+            println!("o*    = {}", a.ordinal());
+            println!("（ここから始めた battle が ⊤ に着くまでの長さ G(m) は、ATR₀ が全域性を");
+            println!("  証明できるどんな関数よりも速く増える：arXiv:2008.13445, Thm 52）");
+            Ok(())
+        }
         _ => Err(USAGE.to_string()),
     }
 }
@@ -309,9 +376,14 @@ const USAGE: &str = "使い方:
   wormlab wc     \"A |- B\"          worm シーケントの WC 証明（--json で JSON 出力）
   wormlab wclt   <n> <worm> <worm> A <_n B（B ⊢ nA）の WC 証明
   wormlab ordinal <順序数> [<順序数>]  Γ0 未満の順序数の正規形（2 つなら比較）
+  wormlab bracket <括弧語>         括弧語の順序数・翻訳・正規形（--json 可）
+  wormlab bracketof <順序数>       順序数を正規形の括弧語にする
+  wormlab bbattle <括弧語> [上限]  括弧語の battle
+  wormlab thm52  <m>               ATR₀ から独立な命題（Thm 52）の出発点 a'_m
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
   文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（ord・cmp・lt・wc・wclt で使える）
-順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）";
+順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）
+括弧語の書き方: \"()\" = 1, \"(())\" = ω, \"((()))\" = ε_0（⊤ は省略）";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

@@ -102,6 +102,26 @@ pub fn equiv<L: Letter>(w: &Worm<L>, v: &Worm<L>) -> bool {
     hb.le(w.letters(), v.letters()) && hb.le(v.letters(), w.letters())
 }
 
+/// Beklemishev 標準形（BNF）か。
+///
+/// 出典：Fernández-Duque & Hermo Reyes, arXiv:2008.13445, Def. 10 / Thm 11
+/// （どの worm にも、同値な BNF の worm がちょうど 1 つある）。
+///
+/// A = ⊤、または α = min A として最小文字 α のすべての出現で区切った
+/// A = A_k α A_{k−1} α … α A_0 について、各 A_i が BNF で、
+/// 左の成分ほど小さい（A_{i+1} ⊴ A_i）こと。
+pub fn is_bnf<L: Letter>(w: &Worm<L>) -> bool {
+    is_bnf_rec(&mut HeadBody::new(), w.letters())
+}
+
+fn is_bnf_rec<L: Letter>(hb: &mut HeadBody<L>, a: &[L]) -> bool {
+    let Some(alpha) = a.iter().min().cloned() else {
+        return true;
+    };
+    let comps: Vec<&[L]> = a.split(|x| *x == alpha).collect(); // 左から A_k, …, A_0
+    comps.iter().all(|c| is_bnf_rec(hb, c)) && comps.windows(2).all(|p| hb.le(p[0], p[1]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
