@@ -31,6 +31,7 @@
 
 use crate::letter::Letter;
 use crate::worm::Worm;
+use crate::proof::FxBuild;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -112,7 +113,7 @@ pub struct CanonTree {
     pub start: Vec<u32>,
     pub end: Vec<u32>,
     pub root: u32,
-    by_range: HashMap<(u32, u32), u32>,
+    by_range: HashMap<(u32, u32), u32, FxBuild>,
 }
 
 impl CanonTree {
@@ -140,7 +141,7 @@ impl CanonTree {
         let root = stack.first().map_or(0, |&r| (r + 1) as u32);
         // 区間を根から配る（再帰の代わりに明示的なスタック）
         let (mut start, mut end) = (vec![0u32; n + 1], vec![0u32; n + 1]);
-        let mut by_range = HashMap::new();
+        let mut by_range = HashMap::default();
         by_range.insert((0, 0), 0); // 空の区間は ⊤（位置は問わないので lookup 側でも扱う）
         let mut todo = vec![(root, 0u32, n as u32)];
         while let Some((k, l, r)) = todo.pop() {
@@ -182,7 +183,7 @@ pub struct CtCompare<L> {
     v: Rc<[L]>,
     tw: CanonTree,
     tv: CanonTree,
-    memo: HashMap<(u32, u32, bool), bool>,
+    memo: HashMap<(u32, u32, bool), bool, FxBuild>,
 }
 
 impl<L: Letter> CtCompare<L> {
@@ -192,7 +193,7 @@ impl<L: Letter> CtCompare<L> {
             tv: CanonTree::new(v),
             w: w.into(),
             v: v.into(),
-            memo: HashMap::new(),
+            memo: HashMap::default(),
         }
     }
 

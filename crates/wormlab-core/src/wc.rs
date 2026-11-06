@@ -26,7 +26,7 @@
 //!    最小の文字 λ が α より大きいときは、まず A ⊢ λB を示して A3 で下げる。
 //! 3. どの部分目標でも、**局所断片**（文字の引き下げ・消去・尾の切り捨てだけ）
 //!    で済む証明を DP で探し、木として小さければそちらに差し替える
-//!    （[`Prover::local`]。例：`L…0 ⊢ 0(L−1…0)` は A3 一発）。
+//!    （[`Prover::local_cost`]。例：`L…0 ⊢ 0(L−1…0)` は A3 一発）。
 //!
 //! 部分証明は判断ごとにメモ化して共有するので、証明は DAG になる。
 //! 木に展開した大きさは O(n³)、比較（head/body）は標準木のノード番号で
@@ -189,13 +189,13 @@ pub struct Decider<L = u32> {
     cmp: CtCompare<L>,
     left: Rc<[L]>,
     right: Rc<[L]>,
-    memo: HashMap<(Seg, Seg), bool>,
+    memo: HashMap<(Seg, Seg), bool, FxBuild>,
 }
 
 impl<L: Letter> Decider<L> {
     /// A ⊢ B を調べる判定器（比較の木は B を w 側、A を v 側にして作る）。
     pub fn new(a: &[L], b: &[L]) -> Self {
-        Decider { cmp: CtCompare::new(b, a), left: a.into(), right: b.into(), memo: HashMap::new() }
+        Decider { cmp: CtCompare::new(b, a), left: a.into(), right: b.into(), memo: HashMap::default() }
     }
 
     /// 元の A ⊢ B か。
@@ -238,21 +238,29 @@ pub fn decide<L: Letter>(a: &Worm<L>, b: &Worm<L>) -> bool {
     Decider::new(a.letters(), b.letters()).decide_root()
 }
 
-/// WC の証明を組み立てる。
+/// WC の証明を組み立てる。2 段構え：
 ///
-/// 各部分目標について、まず Lemma 4.5 / Thm 3.17 に沿った証明を作り（モジュールの
-/// 説明を参照）、局所断片 [`Prover::local`]（文字の引き下げ・消去・尾の切り捨て）
-/// だけで済む証明の方が木として小さければ、そちらに差し替える。
-/// 前者は常に作るので、証明の木の大きさは O(n³) の上界（algorithms.md §1）を保つ。
+/// 1. **計画**：各部分目標について、Lemma 4.5 / Thm 3.17 に沿った作り方（モジュールの
+///    説明を参照）と、局所断片 [`Prover::local_cost`]（文字の引き下げ・消去・尾の
+///    切り捨て）だけで済む作り方の、木としての大きさを**ノードを作らずに**計算し、
+///    小さい方を選ぶ。
+/// 2. **組み立て**：根から、選んだ作り方に従ってノードを作る。使われない候補の
+///    ノードは作らない。
+///
+/// 前者の作り方は常に候補に入るので、証明の木の大きさは O(n³) の上界
+/// （algorithms.md §1）を保つ。2 つの段階は同じ構成のコード（[`Sink`] で抽象化）を
+/// 共有するので、計画した大きさと実際の大きさは一致する（デバッグビルドで確認）。
 pub struct Prover<L = u32> {
     b: Builder<WSeq<L>, WcRule>,
     cmp: CtCompare<L>,
     left: Rc<[L]>,
     right: Rc<[L]>,
-    /// 済んだ部分目標（判断の中身で引く。同じ中身の目標は位置が違っても共有）
-    goals: HashMap<WSeq<L>, usize, FxBuild>,
+    /// 計画段階：部分目標（判断の中身で引く）→ 木の大きさと選んだ作り方
+    plans: HashMap<WSeq<L>, Plan, FxBuild>,
+    /// 組み立て段階：部分目標 → 作ったノード
+    built: HashMap<WSeq<L>, usize, FxBuild>,
     /// 局所断片の DP の作業領域（呼ぶたびに確保し直さない）
-    dp_cost: Vec<u128>,
+    dp_cost: Vec<u32>,
     dp_how: Vec<u8>,
 }
 
@@ -268,7 +276,8 @@ impl<L: Letter> Prover<L> {
             cmp,
             left: a.into(),
             right: b.into(),
-            goals: HashMap::default(),
+            plans: HashMap::default(),
+            built: HashMap::default(),
             dp_cost: Vec::new(),
             dp_how: Vec::new(),
         }
@@ -331,13 +340,11 @@ impl<L: Letter> Prover<L> {
     }
 
     /// 先頭部分の補題（論文 Lemma 3.3）：full ⊢ full[..k]。
-    /// 内側を A1 で捨て、Nec を k 回（局所断片の中で最小）。
+    /// 内側を A1 で捨て、Nec を k 回（局所断片の中で最小）。木の大きさは k + 1。
+    /// （同じ形のノードは Builder が共有するので、メモは要らない。）
     fn prefix(&mut self, full: &[L], k: usize) -> usize {
         if k == full.len() {
             return self.identity(full);
-        }
-        if let Some(id) = self.b.lookup(&WSeq::new(full, &full[..k])) {
-            return id;
         }
         if k == 0 {
             return self.axiom(WcRule::A1, full, &[]);
@@ -349,12 +356,10 @@ impl<L: Letter> Prover<L> {
     /// 接尾部分の補題（論文 Lemma 3.5）：v = X μ Y（X の文字は μ より大）のとき v ⊢ μY。
     /// `i` は v[i] = μ となる位置。X の文字を内側から 1 つずつ A3＋A2 で吸収する。
     /// 一番内側は γμY ⊢ μμY ⊢ μY の 3 ノードで、恒等式 μY ⊢ μY は作らない。
+    /// 木の大きさは 3 + 5(i − 1)。
     fn suffix(&mut self, v: &[L], i: usize) -> usize {
         if i == 0 {
             return self.identity(v);
-        }
-        if let Some(id) = self.b.lookup(&WSeq::new(v, &v[i..])) {
-            return id;
         }
         let (mu, tail) = (&v[i], &v[i..]); // tail = μY
         // v ⊢ γ μY（γ = v[0]）
@@ -385,11 +390,12 @@ impl<L: Letter> Prover<L> {
     /// 1. A1 で尾を捨て、全部「残す」（Y が X の先頭と文字ごとに ≤ のとき）。
     ///    A1 で始めるなら「消す」は得にならないので、これで最小。
     /// 2. 最長の共通の尾 T から始め、X = P T, Y = Q T の P → Q を「残す・消す」の
-    ///    DP で最小化（O(|P|·|Q|)。大きすぎるときは省く）。
+    ///    DP で最小化（消す数 D = |P| − |Q| の帯だけ見るので O(|P|·(D+1))。
+    ///    下限が `bound` 以上のときや、大きすぎるときは省く）。
     ///
-    /// まず大きさだけを計算し、`bound` より小さいときだけ実際に組み立てる。
+    /// 大きさだけを計算し、`bound` より小さければ（大きさ, 作り方）を返す。
     /// `L…0 ⊢ 0(L−1…0)` のような「同じ尾を A3 一発で下げる」証明もこの特別な場合。
-    fn local(&mut self, x: &[L], y: &[L], bound: u128) -> Option<usize> {
+    fn local_cost(&mut self, x: &[L], y: &[L], bound: u128) -> Option<(u128, Choice)> {
         let (nx, ny) = (x.len(), y.len());
         if ny > nx || x == y {
             return None;
@@ -418,17 +424,18 @@ impl<L: Letter> Prover<L> {
         const BUDGET: usize = 1 << 18;
         let lower_bound = if np >= nq { (nq + 3 * (np - nq)).saturating_sub(2).max(1) as u128 } else { u128::MAX };
         let target = c1.map_or(bound, |c| c.min(bound));
-        let c2 = if nq <= np && lower_bound < target && (np + 1) * (nq + 1) <= BUDGET {
+        let c2 = if nq <= np && lower_bound < target && (np + 1) * (np - nq + 1) <= BUDGET {
             self.local_plan(x, y, np, nq)
         } else {
             None
         };
-        match (c1, c2) {
-            (Some(a), Some((b, path))) if b < a => (b < bound).then(|| self.build_plan(x, y, &path)),
-            (Some(a), _) => (a < bound).then(|| self.build_keep_all(x, y)),
-            (None, Some((b, path))) => (b < bound).then(|| self.build_plan(x, y, &path)),
-            (None, None) => None,
-        }
+        let best = match (c1, c2) {
+            (Some(a), Some((b, path))) if b < a => (b, Choice::Dp(path)),
+            (Some(a), _) => (a, Choice::KeepAll),
+            (None, Some((b, path))) => (b, Choice::Dp(path)),
+            (None, None) => return None,
+        };
+        (best.0 < bound).then_some(best)
     }
 
     /// 候補 1 を組み立てる：x[|y|..] ⊢ ⊤（A1）から、外側へ Nec（必要なら A3 で下げる）。
@@ -441,29 +448,35 @@ impl<L: Letter> Prover<L> {
         p
     }
 
-    /// 候補 2 の DP：x = P T, y = Q T（|P| = np, |Q| = nq）。g(q, i) は x[q..] ⊢ y[i..] の
-    /// 木のノード数で、(np, nq)（共通の尾 T）は 0。大きさと、外側からの手の列を返す。
+    /// 候補 2 の DP：x = P T, y = Q T（|P| = np, |Q| = nq）で、位置 (np, nq)（共通の尾 T）
+    /// から外側へ「残す・消す」を選ぶ。大きさと、外側からの手の列を返す。
+    ///
+    /// 消す文字の数は D = np − nq に決まっているので、状態 (q, i) は d = q − i ∈ [0, D]
+    /// の帯にしか現れない。帯だけを表に持つので O(np·(D+1))。
+    /// g(q, d) は x[q..] ⊢ y[q−d..] の木のノード数で、(np, D)（共通の尾）は 0。
     #[allow(clippy::type_complexity)]
     fn local_plan(&mut self, x: &[L], y: &[L], np: usize, nq: usize) -> Option<(u128, Vec<(usize, usize, u8)>)> {
-        const INF: u128 = u128::MAX;
+        const INF: u32 = u32::MAX;
         let ny = y.len();
-        let w = nq + 1;
-        let at = |q: usize, i: usize| q * w + i;
-        let (g, how) = (&mut self.dp_cost, &mut self.dp_how); // 2 = 残す、3 = 消す
+        let dd = np - nq; // 消す文字の数 D
+        let w = dd + 1;
+        let at = |q: usize, d: usize| q * w + d;
+        let (g, how) = (&mut self.dp_cost, &mut self.dp_how); // how：2 = 残す、3 = 消す
         g.clear();
         g.resize((np + 1) * w, INF);
         how.clear();
         how.resize((np + 1) * w, 0);
-        g[at(np, nq)] = 0;
+        g[at(np, dd)] = 0;
         for q in (0..np).rev() {
-            for i in (0..=nq).rev() {
+            for d in q.saturating_sub(nq)..=dd.min(q) {
+                let i = q - d;
                 // y が尽きていたら x の文字はもう処理できない（A1 で捨てるのは候補 1）
                 if i == ny || x[q] < y[i] {
                     continue;
                 }
                 let lowered = if x[q] > y[i] { 2 } else { 0 };
                 let keep = if i < nq {
-                    match g[at(q + 1, i + 1)] {
+                    match g[at(q + 1, d)] {
                         INF => INF,
                         0 => if lowered > 0 { 1 } else { INF }, // A3 一発
                         s => s + 1 + lowered,
@@ -471,15 +484,19 @@ impl<L: Letter> Prover<L> {
                 } else {
                     INF
                 };
-                let del = match g[at(q + 1, i)] {
-                    INF => INF,
-                    0 => if lowered == 0 { 1 } else { 3 }, // A2 一発 / A3＋A2
-                    s => s + 3 + lowered,
+                let del = if d < dd {
+                    match g[at(q + 1, d + 1)] {
+                        INF => INF,
+                        0 => if lowered == 0 { 1 } else { 3 }, // A2 一発 / A3＋A2
+                        s => s + 3 + lowered,
+                    }
+                } else {
+                    INF
                 };
                 if keep <= del && keep < INF {
-                    (g[at(q, i)], how[at(q, i)]) = (keep, 2);
+                    (g[at(q, d)], how[at(q, d)]) = (keep, 2);
                 } else if del < INF {
-                    (g[at(q, i)], how[at(q, i)]) = (del, 3);
+                    (g[at(q, d)], how[at(q, d)]) = (del, 3);
                 }
             }
         }
@@ -487,16 +504,16 @@ impl<L: Letter> Prover<L> {
             return None;
         }
         let mut path = Vec::new();
-        let (mut q, mut i) = (0, 0);
-        while (q, i) != (np, nq) {
-            let h = how[at(q, i)];
-            path.push((q, i, h));
-            if h == 2 {
-                i += 1;
+        let (mut q, mut d) = (0, 0);
+        while q < np {
+            let h = how[at(q, d)];
+            path.push((q, q - d, h));
+            if h == 3 {
+                d += 1;
             }
             q += 1;
         }
-        Some((g[at(0, 0)], path))
+        Some((g[at(0, 0)] as u128, path))
     }
 
     /// 候補 2 を、手の列 `path`（外側から）に従って内側から組み立てる。
@@ -533,126 +550,13 @@ impl<L: Letter> Prover<L> {
 
     // ---------------- 本体 ----------------
 
-    /// 元の A ⊢ B の証明。
+    /// 元の A ⊢ B の証明（計画してから組み立てる）。
     pub fn prove_root(&mut self) -> usize {
-        let (na, nb) = (self.left.len(), self.right.len());
-        self.prove((0, na), (0, nb))
-    }
-
-    /// A ⊢ B の証明（A は左辺側、B は右辺側の区間。RC で成り立つことが前提）。
-    fn prove(&mut self, a: Seg, b: Seg) -> usize {
-        let (left, right) = (Rc::clone(&self.left), Rc::clone(&self.right));
-        let (xa, xb) = (&left[a.0..a.1], &right[b.0..b.1]);
-        let goal = WSeq::new(xa, xb);
-        if let Some(&id) = self.goals.get(&goal) {
-            return id;
-        }
-        debug_assert!(rc_holds(xa, xb), "前提違反: {:?} ⊢ {:?}", xa, xb);
-        let id = if xa == xb {
-            self.identity(xa)
-        } else if xb.is_empty() {
-            self.axiom(WcRule::A1, xa, &[])
-        } else {
-            // A = hA rA, B = α hB rB（h は文字が α 以上の最長の先頭部分）
-            let alpha = &xb[0];
-            let ka = xa.iter().position(|x| x < alpha).unwrap_or(xa.len());
-            let kb = xb[1..].iter().position(|x| x < alpha).unwrap_or(xb.len() - 1);
-            let c = if ka == xa.len() && kb == xb.len() - 1 {
-                self.prove_lt(alpha, (b.0 + 1, b.1), a)
-            } else if kb < xb.len() - 1 {
-                // Lemma 4.5 の分解：A ⊢ α hB（独立の目標）と A ⊢ rB を R3 で
-                let p1 = self.prove(a, (b.0, b.0 + 1 + kb));
-                let p2 = self.prove(a, (b.0 + 1 + kb, b.1));
-                self.r3(p1, p2)
-            } else {
-                // rB = ⊤, rA ≠ ⊤：A ⊢ hA ⊢ α hB
-                let pre = self.prefix(xa, ka);
-                let p1 = self.prove((a.0, a.0 + ka), b);
-                self.cut(pre, p1)
-            };
-            // 局所断片の方が小さければそちら
-            let bound = self.b.tree_size(c);
-            self.local(xa, xb, bound).unwrap_or(c)
-        };
-        self.goals.insert(goal, id);
+        let (a, b) = ((0, self.left.len()), (0, self.right.len()));
+        let planned = prove_with(&mut Planner { pr: self }, a, b).size;
+        let id = prove_with(&mut Assembler { pr: self }, a, b);
+        debug_assert_eq!(self.b.tree_size(id), planned, "計画した大きさと実際の大きさが違う");
         id
-    }
-
-    /// v ⊢ μw の証明（w は右辺側、v は左辺側の区間。文字はすべて μ 以上、
-    /// RC で成り立つことが前提）。
-    fn prove_lt(&mut self, mu: &L, w: Seg, v: Seg) -> usize {
-        let (left, right) = (Rc::clone(&self.left), Rc::clone(&self.right));
-        let (xw, xv) = (&right[w.0..w.1], &left[v.0..v.1]);
-        let target = cons(mu.clone(), xw);
-        let goal = WSeq::new(xv, &target);
-        if let Some(&id) = self.goals.get(&goal) {
-            return id;
-        }
-        debug_assert!(rc_holds(xv, &target), "前提違反: {:?} ⊢ {:?}", xv, target);
-        let c = if xw.is_empty() {
-            // v ⊢ γ（γ は v の先頭）から A3 で v ⊢ μ
-            let p = self.prefix(xv, 1);
-            self.lower(p, mu)
-        } else {
-            let lambda = min_of(xw, xv);
-            if lambda > *mu {
-                let p = self.prove_lt(&lambda, w, v); // v ⊢ λw
-                self.lower(p, mu)
-            } else {
-                self.thm317(mu, w, v)
-            }
-        };
-        let bound = self.b.tree_size(c);
-        let id = self.local(xv, &target, bound).unwrap_or(c);
-        self.goals.insert(goal, id);
-        id
-    }
-
-    /// λ = μ のとき：Thm 3.17 の分岐 (a)/(b) に沿って v ⊢ μw を組み立てる。
-    fn thm317(&mut self, mu: &L, w: Seg, v: Seg) -> usize {
-        let (left, right) = (Rc::clone(&self.left), Rc::clone(&self.right));
-        let (xw, xv) = (&right[w.0..w.1], &left[v.0..v.1]);
-        let target = cons(mu.clone(), xw);
-        // w = h(w) μ b(w)、v = h(v) μ b(v)（μ が無ければ b は ⊤）
-        let iw = xw.iter().position(|x| x == mu);
-        let iv = xv.iter().position(|x| x == mu);
-        let hw = (w.0, w.0 + iw.unwrap_or(xw.len()));
-        let bw = iw.map_or((w.1, w.1), |i| (w.0 + i + 1, w.1));
-        let hv = (v.0, v.0 + iv.unwrap_or(xv.len()));
-        let bv = iv.map_or((v.1, v.1), |i| (v.0 + i + 1, v.1));
-        let (nw, nbv) = (self.cmp.node_w(w.0, w.1), self.cmp.node_v(bv.0, bv.1));
-        if self.cmp.le(nw, nbv) {
-            // (a) w ⊴ b(v)。v = h(v) μ b(v) なので v ⊢ μ b(v)
-            let s = self.suffix(xv, hv.1 - hv.0);
-            if self.cmp.lt(nw, nbv) {
-                let q = self.prove_lt(mu, w, bv); // b(v) ⊢ μw
-                let n = self.nec(mu, q); // μ b(v) ⊢ μμw
-                let a2 = self.axiom(WcRule::A2, &cons(mu.clone(), &target), &target);
-                let c = self.cut(s, n);
-                self.cut(c, a2)
-            } else {
-                let q = self.prove(bv, w); // b(v) ⊢ w（同値）
-                let n = self.nec(mu, q); // μ b(v) ⊢ μw
-                self.cut(s, n)
-            }
-        } else if iw.is_none() {
-            // (b) で μ ∉ w：v ⊢ h(v) ⊢ μ' w ⊢ μw
-            let mu2 = min_of(xw, &left[hv.0..hv.1]);
-            let p1 = self.prove_lt(&mu2, w, hv);
-            let pre = self.prefix(xv, hv.1 - hv.0);
-            let c = self.cut(pre, p1);
-            self.lower(c, mu)
-        } else {
-            // (b) で w = h(w) μ b(w)
-            let (shw, shv) = (&right[hw.0..hw.1], &left[hv.0..hv.1]);
-            let mu2 = if shw.is_empty() { shv[0].clone() } else { min_of(shw, shv) };
-            let p1 = self.prove_lt(&mu2, hw, hv); // h(v) ⊢ μ' h(w)
-            let pre = self.prefix(xv, hv.1 - hv.0); // v ⊢ h(v)
-            let c = self.cut(pre, p1); // v ⊢ μ' h(w)
-            let p2 = self.prove_lt(mu, bw, v); // v ⊢ μ b(w)
-            let r = self.r3(c, p2); // v ⊢ μ' h(w) μ b(w)
-            self.lower(r, mu) // v ⊢ μ h(w) μ b(w) = μw
-        }
     }
 
     /// 比較で調べた状態の数（実験用）。
@@ -663,6 +567,331 @@ impl<L: Letter> Prover<L> {
     /// 組み立てた DAG から `root` の証明を取り出す。
     pub fn finish(self, root: usize) -> WcProof<L> {
         self.b.finish(root)
+    }
+}
+
+/// 部分目標の作り方（計画段階で選び、組み立て段階で従う）。
+#[derive(Clone)]
+enum Choice {
+    /// Lemma 4.5 / Thm 3.17 に沿った構成
+    Main,
+    /// 局所断片の候補 1（A1 で尾を捨てて全部残す）
+    KeepAll,
+    /// 局所断片の候補 2（共通の尾から。外側からの手の列）
+    Dp(Vec<(usize, usize, u8)>),
+}
+
+/// 計画：木の大きさと作り方。
+struct Plan {
+    size: u128,
+    choice: Choice,
+}
+
+/// 構成のコードを「大きさだけ計算する（計画）」と「ノードを作る（組み立て）」の
+/// 両方で使うための抽象。規則の部品と、部分目標の呼び出しを提供する。
+///
+/// 【Rust メモ】`type P` は関連型。計画では [`Virt`]（大きさと判断）、組み立てでは
+/// ノード番号 `usize` になる。下の `prove_with` などは `S: Sink<L>` について
+/// ジェネリックなので、同じコードが 2 通りにコンパイルされる。
+trait Sink<L: Letter> {
+    type P;
+    fn pr(&mut self) -> &mut Prover<L>;
+    fn axiom(&mut self, rule: WcRule, l: &[L], r: &[L]) -> Self::P;
+    fn cut(&mut self, p: Self::P, q: Self::P) -> Self::P;
+    fn nec(&mut self, g: &L, p: Self::P) -> Self::P;
+    fn r3(&mut self, p: Self::P, q: Self::P) -> Self::P;
+    fn lower(&mut self, p: Self::P, mu: &L) -> Self::P;
+    fn prefix(&mut self, full: &[L], k: usize) -> Self::P;
+    fn suffix(&mut self, v: &[L], i: usize) -> Self::P;
+    fn identity(&mut self, a: &[L]) -> Self::P;
+    /// 部分目標 A ⊢ B（Lemma 4.5 で分解する場合）。メモと候補の選択はここで。
+    fn goal(&mut self, a: Seg, b: Seg) -> Self::P;
+    /// 部分目標 v ⊢ μw。
+    fn goal_lt(&mut self, mu: &L, w: Seg, v: Seg) -> Self::P;
+}
+
+fn bufs<L: Letter>(pr: &Prover<L>) -> (Rc<[L]>, Rc<[L]>) {
+    (Rc::clone(&pr.left), Rc::clone(&pr.right))
+}
+
+/// A ⊢ B の証明（A は左辺側、B は右辺側の区間。RC で成り立つことが前提）。
+/// 恒等式・A1・prove_lt への委譲を先に片づけ、残りを [`Sink::goal`] に回す。
+fn prove_with<L: Letter, S: Sink<L>>(s: &mut S, a: Seg, b: Seg) -> S::P {
+    let (left, right) = bufs(s.pr());
+    let (xa, xb) = (&left[a.0..a.1], &right[b.0..b.1]);
+    if xa == xb {
+        return s.identity(xa);
+    }
+    let Some(alpha) = xb.first() else {
+        return s.axiom(WcRule::A1, xa, &[]);
+    };
+    let ka = xa.iter().position(|x| x < alpha).unwrap_or(xa.len());
+    let kb = xb[1..].iter().position(|x| x < alpha).unwrap_or(xb.len() - 1);
+    if ka == xa.len() && kb == xb.len() - 1 {
+        return s.goal_lt(alpha, (b.0 + 1, b.1), a); // A, B₀ ∈ W_α
+    }
+    s.goal(a, b)
+}
+
+/// Lemma 4.5 の分解（rA か rB が ⊤ でない）。
+fn lemma45<L: Letter, S: Sink<L>>(s: &mut S, a: Seg, b: Seg) -> S::P {
+    let (left, right) = bufs(s.pr());
+    let (xa, xb) = (&left[a.0..a.1], &right[b.0..b.1]);
+    let alpha = &xb[0];
+    let ka = xa.iter().position(|x| x < alpha).unwrap_or(xa.len());
+    let kb = xb[1..].iter().position(|x| x < alpha).unwrap_or(xb.len() - 1);
+    if kb < xb.len() - 1 {
+        // A ⊢ α hB（独立の目標）と A ⊢ rB を R3 で
+        let p1 = prove_with(s, a, (b.0, b.0 + 1 + kb));
+        let p2 = prove_with(s, a, (b.0 + 1 + kb, b.1));
+        s.r3(p1, p2)
+    } else {
+        // rB = ⊤, rA ≠ ⊤：A ⊢ hA ⊢ α hB
+        let pre = s.prefix(xa, ka);
+        let p1 = prove_with(s, (a.0, a.0 + ka), b);
+        s.cut(pre, p1)
+    }
+}
+
+/// v ⊢ μw の構成（w は右辺側、v は左辺側の区間。文字はすべて μ 以上）。
+fn lt_main<L: Letter, S: Sink<L>>(s: &mut S, mu: &L, w: Seg, v: Seg) -> S::P {
+    let (left, right) = bufs(s.pr());
+    let (xw, xv) = (&right[w.0..w.1], &left[v.0..v.1]);
+    if xw.is_empty() {
+        // v ⊢ γ（γ は v の先頭）から A3 で v ⊢ μ
+        let p = s.prefix(xv, 1);
+        return s.lower(p, mu);
+    }
+    let lambda = min_of(xw, xv);
+    if lambda > *mu {
+        let p = s.goal_lt(&lambda, w, v); // v ⊢ λw
+        return s.lower(p, mu);
+    }
+    thm317(s, mu, w, v)
+}
+
+/// λ = μ のとき：Thm 3.17 の分岐 (a)/(b) に沿って v ⊢ μw を組み立てる。
+fn thm317<L: Letter, S: Sink<L>>(s: &mut S, mu: &L, w: Seg, v: Seg) -> S::P {
+    let (left, right) = bufs(s.pr());
+    let (xw, xv) = (&right[w.0..w.1], &left[v.0..v.1]);
+    let target = cons(mu.clone(), xw);
+    // w = h(w) μ b(w)、v = h(v) μ b(v)（μ が無ければ b は ⊤）
+    let iw = xw.iter().position(|x| x == mu);
+    let iv = xv.iter().position(|x| x == mu);
+    let hw = (w.0, w.0 + iw.unwrap_or(xw.len()));
+    let bw = iw.map_or((w.1, w.1), |i| (w.0 + i + 1, w.1));
+    let hv = (v.0, v.0 + iv.unwrap_or(xv.len()));
+    let bv = iv.map_or((v.1, v.1), |i| (v.0 + i + 1, v.1));
+    let cmp = &mut s.pr().cmp;
+    let (nw, nbv) = (cmp.node_w(w.0, w.1), cmp.node_v(bv.0, bv.1));
+    if cmp.le(nw, nbv) {
+        // (a) w ⊴ b(v)。v = h(v) μ b(v) なので v ⊢ μ b(v)
+        let strict = s.pr().cmp.lt(nw, nbv);
+        let sfx = s.suffix(xv, hv.1 - hv.0);
+        if strict {
+            let q = s.goal_lt(mu, w, bv); // b(v) ⊢ μw
+            let n = s.nec(mu, q); // μ b(v) ⊢ μμw
+            let a2 = s.axiom(WcRule::A2, &cons(mu.clone(), &target), &target);
+            let c = s.cut(sfx, n);
+            s.cut(c, a2)
+        } else {
+            let q = prove_with(s, bv, w); // b(v) ⊢ w（同値）
+            let n = s.nec(mu, q); // μ b(v) ⊢ μw
+            s.cut(sfx, n)
+        }
+    } else if iw.is_none() {
+        // (b) で μ ∉ w：v ⊢ h(v) ⊢ μ' w ⊢ μw
+        let mu2 = min_of(xw, &left[hv.0..hv.1]);
+        let p1 = s.goal_lt(&mu2, w, hv);
+        let pre = s.prefix(xv, hv.1 - hv.0);
+        let c = s.cut(pre, p1);
+        s.lower(c, mu)
+    } else {
+        // (b) で w = h(w) μ b(w)
+        let (shw, shv) = (&right[hw.0..hw.1], &left[hv.0..hv.1]);
+        let mu2 = if shw.is_empty() { shv[0].clone() } else { min_of(shw, shv) };
+        let p1 = s.goal_lt(&mu2, hw, hv); // h(v) ⊢ μ' h(w)
+        let pre = s.prefix(xv, hv.1 - hv.0); // v ⊢ h(v)
+        let c = s.cut(pre, p1); // v ⊢ μ' h(w)
+        let p2 = s.goal_lt(mu, bw, v); // v ⊢ μ b(w)
+        let r = s.r3(c, p2); // v ⊢ μ' h(w) μ b(w)
+        s.lower(r, mu) // v ⊢ μ h(w) μ b(w) = μw
+    }
+}
+
+/// 計画段階の「証明」：木の大きさと判断だけ（ノードは作らない）。
+struct Virt<L> {
+    size: u128,
+    lhs: Rc<[L]>,
+    rhs: Rc<[L]>,
+}
+
+impl<L: Letter> Virt<L> {
+    fn new(size: u128, lhs: &[L], rhs: &[L]) -> Self {
+        Virt { size, lhs: lhs.into(), rhs: rhs.into() }
+    }
+    fn is_identity(&self) -> bool {
+        self.lhs == self.rhs
+    }
+}
+
+/// 計画段階：大きさを数えるだけの [`Sink`]。数え方は [`Prover`] の部品と同じ
+/// （恒等式との Cut を省く、など）。
+struct Planner<'a, L> {
+    pr: &'a mut Prover<L>,
+}
+
+impl<L: Letter> Sink<L> for Planner<'_, L> {
+    type P = Virt<L>;
+
+    fn pr(&mut self) -> &mut Prover<L> {
+        self.pr
+    }
+    fn axiom(&mut self, _rule: WcRule, l: &[L], r: &[L]) -> Virt<L> {
+        Virt::new(1, l, r)
+    }
+    fn cut(&mut self, p: Virt<L>, q: Virt<L>) -> Virt<L> {
+        debug_assert!(p.rhs == q.lhs);
+        if p.is_identity() {
+            return q;
+        }
+        if q.is_identity() {
+            return p;
+        }
+        Virt { size: p.size.saturating_add(q.size).saturating_add(1), lhs: p.lhs, rhs: q.rhs }
+    }
+    fn nec(&mut self, g: &L, p: Virt<L>) -> Virt<L> {
+        Virt::new(p.size.saturating_add(1), &cons(g.clone(), &p.lhs), &cons(g.clone(), &p.rhs))
+    }
+    fn r3(&mut self, p: Virt<L>, q: Virt<L>) -> Virt<L> {
+        let mut rhs = p.rhs.to_vec();
+        rhs.extend_from_slice(&q.rhs);
+        Virt { size: p.size.saturating_add(q.size).saturating_add(1), lhs: p.lhs, rhs: rhs.into() }
+    }
+    fn lower(&mut self, p: Virt<L>, mu: &L) -> Virt<L> {
+        if p.rhs[0] == *mu {
+            return p;
+        }
+        let a3 = Virt::new(1, &p.rhs, &cons(mu.clone(), &p.rhs[1..]));
+        self.cut(p, a3)
+    }
+    fn prefix(&mut self, full: &[L], k: usize) -> Virt<L> {
+        if k == full.len() {
+            return self.identity(full);
+        }
+        Virt::new(k as u128 + 1, full, &full[..k])
+    }
+    fn suffix(&mut self, v: &[L], i: usize) -> Virt<L> {
+        if i == 0 {
+            return self.identity(v);
+        }
+        Virt::new(3 + 5 * (i as u128 - 1), v, &v[i..])
+    }
+    fn identity(&mut self, a: &[L]) -> Virt<L> {
+        Virt::new(a.len() as u128 + 1, a, a)
+    }
+    fn goal(&mut self, a: Seg, b: Seg) -> Virt<L> {
+        let (left, right) = bufs(self.pr);
+        let (xa, xb) = (&left[a.0..a.1], &right[b.0..b.1]);
+        let key = WSeq::new(xa, xb);
+        if let Some(p) = self.pr.plans.get(&key) {
+            return Virt::new(p.size, xa, xb);
+        }
+        debug_assert!(rc_holds(xa, xb), "前提違反: {:?} ⊢ {:?}", xa, xb);
+        let main = lemma45(self, a, b).size;
+        let plan = match self.pr.local_cost(xa, xb, main) {
+            Some((size, choice)) => Plan { size, choice },
+            None => Plan { size: main, choice: Choice::Main },
+        };
+        let size = plan.size;
+        self.pr.plans.insert(key, plan);
+        Virt::new(size, xa, xb)
+    }
+    fn goal_lt(&mut self, mu: &L, w: Seg, v: Seg) -> Virt<L> {
+        let (left, right) = bufs(self.pr);
+        let (xw, xv) = (&right[w.0..w.1], &left[v.0..v.1]);
+        let target = cons(mu.clone(), xw);
+        let key = WSeq::new(xv, &target);
+        if let Some(p) = self.pr.plans.get(&key) {
+            return Virt::new(p.size, xv, &target);
+        }
+        debug_assert!(rc_holds(xv, &target), "前提違反: {:?} ⊢ {:?}", xv, target);
+        let main = lt_main(self, mu, w, v).size;
+        let plan = match self.pr.local_cost(xv, &target, main) {
+            Some((size, choice)) => Plan { size, choice },
+            None => Plan { size: main, choice: Choice::Main },
+        };
+        let size = plan.size;
+        self.pr.plans.insert(key, plan);
+        Virt::new(size, xv, &target)
+    }
+}
+
+/// 組み立て段階：計画に従ってノードを作る [`Sink`]。
+struct Assembler<'a, L> {
+    pr: &'a mut Prover<L>,
+}
+
+impl<L: Letter> Assembler<'_, L> {
+    /// 計画済みの部分目標 `key`（x ⊢ y）を、選んだ作り方 `main` か局所断片で作る。
+    fn assemble(&mut self, key: WSeq<L>, main: impl FnOnce(&mut Self) -> usize) -> usize {
+        if let Some(&id) = self.pr.built.get(&key) {
+            return id;
+        }
+        let plan = self.pr.plans.get(&key).expect("組み立てる目標は計画済みのはず");
+        let (size, choice) = (plan.size, plan.choice.clone());
+        let (x, y) = (key.lhs.letters(), key.rhs.letters());
+        let id = match &choice {
+            Choice::Main => main(self),
+            Choice::KeepAll => self.pr.build_keep_all(x, y),
+            Choice::Dp(path) => self.pr.build_plan(x, y, path),
+        };
+        debug_assert_eq!(self.pr.b.tree_size(id), size, "{key}: 計画と実際の大きさが違う");
+        self.pr.built.insert(key, id);
+        id
+    }
+}
+
+impl<L: Letter> Sink<L> for Assembler<'_, L> {
+    type P = usize;
+
+    fn pr(&mut self) -> &mut Prover<L> {
+        self.pr
+    }
+    fn axiom(&mut self, rule: WcRule, l: &[L], r: &[L]) -> usize {
+        self.pr.axiom(rule, l, r)
+    }
+    fn cut(&mut self, p: usize, q: usize) -> usize {
+        self.pr.cut(p, q)
+    }
+    fn nec(&mut self, g: &L, p: usize) -> usize {
+        self.pr.nec(g, p)
+    }
+    fn r3(&mut self, p: usize, q: usize) -> usize {
+        self.pr.r3(p, q)
+    }
+    fn lower(&mut self, p: usize, mu: &L) -> usize {
+        self.pr.lower(p, mu)
+    }
+    fn prefix(&mut self, full: &[L], k: usize) -> usize {
+        self.pr.prefix(full, k)
+    }
+    fn suffix(&mut self, v: &[L], i: usize) -> usize {
+        self.pr.suffix(v, i)
+    }
+    fn identity(&mut self, a: &[L]) -> usize {
+        self.pr.identity(a)
+    }
+    fn goal(&mut self, a: Seg, b: Seg) -> usize {
+        let (left, right) = bufs(self.pr);
+        let key = WSeq::new(&left[a.0..a.1], &right[b.0..b.1]);
+        self.assemble(key, |s| lemma45(s, a, b))
+    }
+    fn goal_lt(&mut self, mu: &L, w: Seg, v: Seg) -> usize {
+        let (left, right) = bufs(self.pr);
+        let key = WSeq::new(&left[v.0..v.1], &cons(mu.clone(), &right[w.0..w.1]));
+        let mu = mu.clone();
+        self.assemble(key, move |s| lt_main(s, &mu, w, v))
     }
 }
 
