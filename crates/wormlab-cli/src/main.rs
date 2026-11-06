@@ -13,8 +13,13 @@
 //!   wormlab ordinal "ω^ε_0 + 1"      Γ0 未満の順序数を正規形にする（2 つ渡すと比較）
 //!   wormlab bracket "((()))"         括弧語の順序数・翻訳・正規形（--json 可）
 //!   wormlab bracketof "ε_0 + 1"      順序数を正規形の括弧語にする
+//!   wormlab bcmp "((()))" "(()())"   括弧語を順序数を使わずに比較（Veblen 経由の比較と照合）
+//!   wormlab bc "((()))p |- ()(())p"  Bracket Calculus で判定。真なら BC の導出を作って検査
+//!                                    （--proof で導出の全行、--json で JSON）
 //!   wormlab bbattle "(())()" [上限]  括弧語の battle（基本列を繰り返す）
 //!   wormlab thm52 3                  Thm 52（ATR₀ から独立）の出発点 a'_m
+//!   wormlab bi "<2>_2 T |- <1> D T"  RC_BI（Pakhomov–Lazar）で判定（変数なしの式。--model で M_A を表示）
+//!   wormlab bimodel "D <1> T"        RC_BI の有限モデル M_A とフレーム条件の検査
 //!   wormlab fs "ε_0" [k]             標準の基本列 α[0..k] と、worm が作る列の比較
 //!   wormlab hardy "ω^2" 10           Hardy 関数 H_α(n) と急増加関数 f_α(n)
 //!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
@@ -27,7 +32,8 @@ use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
 use wormlab_core::hierarchy::{self, Budget};
-use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc, rcproof};
+use wormlab_core::bc::{self, BSeq};
+use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc, rcbi, rcproof};
 
 fn parse_ordinal(s: &str) -> Result<Veblen, String> {
     s.parse::<Veblen>().map_err(|e| e.to_string())
@@ -105,10 +111,53 @@ fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<()
     Ok(())
 }
 
+/// Bracket Calculus の判定と導出。判定・導出・検査はすべて順序数を使わない。
+/// 最後に τ（括弧語 → 順序数）で RC_Γ0 に翻訳した判定とも照らし合わせる（Thm 38）。
+fn bc_cmd(goal: &BSeq, show_proof: bool, json: bool) -> Result<(), String> {
+    let holds = bc::decide(&goal.lhs, &goal.rhs);
+    let tau = goal.tau();
+    if holds != bc::decide_tau(&goal.lhs, &goal.rhs) {
+        return Err(format!("BC と RC_Γ0 の判定が食い違いました（バグです）: {goal}"));
+    }
+    if !holds {
+        println!("BC ⊬ {goal}");
+        println!("  τ で翻訳：RC_Γ0 ⊬ {} ⊢ {}", tau.lhs, tau.rhs);
+        let d = rc::decide(&goal.lhs.to_rc(), &goal.rhs.to_rc());
+        println!("反例：左辺の閉包モデルの根 0 で右辺が偽（文字は正規形の括弧語）");
+        print!("{}", d.model);
+        return Ok(());
+    }
+    let (p, st) = bc::derive(&goal.lhs, &goal.rhs)?;
+    bc::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    if show_proof {
+        print!("{p}");
+    }
+    println!("BC で証明: {goal}");
+    println!("  τ で翻訳：RC_Γ0 ⊢ {} ⊢ {}（順序数経由の判定とも一致）", tau.lhs, tau.rhs);
+    println!(
+        "  導出：検査済み（検査に順序数は不使用）、DAG {} ノード / 木に展開すると {} ノード / 高さ {}",
+        p.dag_size(), p.tree_size(), p.height()
+    );
+    println!(
+        "  副条件（括弧語どうしの比較）の導出 {} 個、副条件の入れ子は最大 {} 段",
+        st.side_conditions, st.max_side_depth
+    );
+    if !show_proof {
+        println!("  （--proof で導出の全行を表示）");
+    }
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let json = args.iter().any(|a| a == "--json");
     let full_proof = args.iter().any(|a| a == "--proof");
-    let args: Vec<String> = args.iter().filter(|a| *a != "--json" && *a != "--proof").cloned().collect();
+    let show_model = args.iter().any(|a| a == "--model");
+    let args: Vec<String> =
+        args.iter().filter(|a| *a != "--json" && *a != "--proof" && *a != "--model").cloned().collect();
     let args = args.as_slice();
     // 【Rust メモ】スライスに対するパターンマッチで引数の形を場合分けできる
     match args {
@@ -363,8 +412,66 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("o*(a)     : {}", x.ordinal());
                 println!("深さ      : {}", x.depth());
                 println!("正規形    : {nf}{}", if x.is_normal() { "（この語自身が正規形）" } else { "" });
+                let nf2 = x.normal_form_syntactic();
+                println!("正規形（順序数なし）: {nf2}{}", if nf2 == nf { "（一致）" } else { "（不一致：バグです）" });
             }
             Ok(())
+        }
+        [cmd, a, b] if cmd == "bcmp" => {
+            let (x, y) = (parse_bracket(a)?, parse_bracket(b)?);
+            let sym = |o: Ordering| match o {
+                Ordering::Less => "<",
+                Ordering::Equal => "=",
+                Ordering::Greater => ">",
+            };
+            let syn = x.cmp_syntactic(&y);
+            let (ox, oy) = (x.ordinal(), y.ordinal());
+            println!("{x}  {}  {y}    （順序数を使わない比較）", sym(syn));
+            println!("o* = {ox}  {}  {oy}    （Veblen 表記を経由した比較{}）",
+                sym(ox.cmp(&oy)), if ox.cmp(&oy) == syn { "、一致" } else { "、不一致：バグです" });
+            println!("正規形（順序数なし）: {}  と  {}", x.normal_form_syntactic(), y.normal_form_syntactic());
+            Ok(())
+        }
+        [cmd, s] if cmd == "bi" => {
+            let q: rcbi::Sequent = s.parse().map_err(|e: rcbi::ParseError| e.to_string())?;
+            let d = rcbi::decide(&q.lhs, &q.rhs)?;
+            let m = &d.model;
+            if d.holds {
+                println!("RC_BIω ⊢ {}", d.sequent);
+            } else {
+                println!("RC_BIω ⊬ {}", d.sequent);
+                println!("反例：左辺の有限モデル M_A の根 0 で右辺が偽");
+            }
+            println!("  M_A：{} 点、持っている添字 1..{} と ω", m.num_points(), m.n_fin());
+            if show_model || !d.holds {
+                print!("{m}");
+            } else {
+                println!("  （--model で M_A を表示）");
+            }
+            Ok(())
+        }
+        [cmd, s] if cmd == "bimodel" => {
+            let a: rcbi::Formula = s.parse().map_err(|e: rcbi::ParseError| e.to_string())?;
+            if !a.is_closed() {
+                return Err("M_A を作れるのは変数を含まない式だけです".to_string());
+            }
+            let m = rcbi::Model::of(&a, a.max_rank());
+            println!("A = {a}");
+            print!("{m}");
+            let v = m.frame_violations();
+            if v.is_empty() {
+                println!("フレーム条件 I〜IV：すべて満たす（RC_BIω モデル）");
+            } else {
+                println!("フレーム条件の違反（バグです）:");
+                for x in v {
+                    println!("  {x}");
+                }
+            }
+            Ok(())
+        }
+        [cmd, s] if cmd == "bc" => {
+            let goal: BSeq = s.parse().map_err(|e: bc::ParseError| e.to_string())?;
+            bc_cmd(&goal, full_proof, json)
         }
         [cmd, a] if cmd == "bracketof" => {
             let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
@@ -448,6 +555,10 @@ const USAGE: &str = "使い方:
   wormlab ordinal <順序数> [<順序数>]  Γ0 未満の順序数の正規形（2 つなら比較）
   wormlab bracket <括弧語>         括弧語の順序数・翻訳・正規形（--json 可）
   wormlab bracketof <順序数>       順序数を正規形の括弧語にする
+  wormlab bcmp   <括弧語> <括弧語> 順序数を使わない比較（Veblen 経由と照合）
+  wormlab bc     \"φ |- ψ\"          Bracket Calculus で判定。真なら BC の導出（--proof で全行）
+  wormlab bi     \"A |- B\"          RC_BI（Pakhomov–Lazar）で判定（変数なし。--model で M_A を表示）
+  wormlab bimodel <式>             RC_BI の有限モデル M_A とフレーム条件の検査
   wormlab bbattle <括弧語> [上限]  括弧語の battle
   wormlab thm52  <m>               ATR₀ から独立な命題（Thm 52）の出発点 a'_m
   wormlab fs     <順序数> [k]      標準の基本列 α[0..k] と worm が作る列
@@ -456,7 +567,9 @@ const USAGE: &str = "使い方:
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
   文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（ord・cmp・lt・wc・wclt で使える）
 順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）
-括弧語の書き方: \"()\" = 1, \"(())\" = ω, \"((()))\" = ε_0（⊤ は省略）";
+括弧語の書き方: \"()\" = 1, \"(())\" = ω, \"((()))\" = ε_0（⊤ は省略）
+BC の式: \"(a)φ\"（a は括弧語）。例 \"((()))p\" = ⟨ω⟩p、\"(())(p & ()q)\"。括弧語はそのまま式として読む
+RC_BI の式: <1>_2 = ⟨1⟩₂、<2>_3 = ⟨2⟩₃、<1>_w = ⟨1⟩_ω、D = ↓、N = ∇、T = ⊤（<1>, <2> だけなら ⟨1⟩₁, ⟨2⟩₂）";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

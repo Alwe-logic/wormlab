@@ -22,9 +22,16 @@
 //! - [`veblen`]：Γ0 未満の順序数（Veblen 関数 φ による正規形）
 //! - [`letter`]：worm の文字の型（u32 と Veblen）。worm・RC・head/body・WC はこれについて汎用
 //! - [`transfinite`]：文字が順序数の worm の順序数 o(A)（超指数関数）、逆写像、Π 順序数 Ω_ξ
-//! - [`bracket`]：Beklemishev の括弧記法（文字も worm で書く）、正規形、基本列と battle
+//! - [`bracket`]：Beklemishev の括弧記法（文字も worm で書く）、正規形、基本列と battle。
+//!   順序数を使わない比較・正規形と、正規形の括弧語を文字にする [`bracket::NfBracket`]
+//! - [`bc`]：Bracket Calculus（モダリティが括弧語の自己完結した体系）の判定・導出・検査
+//!
+//! Bachmann–Howard まで：
+//! - [`rcbi`]：Pakhomov–Lazar の RC_BI / RC_BIω（構文的反射・ω モデル反射・↓・∇）。
+//!   有限モデル M_A による閉じた式の判定（arXiv:2610.20115, Thm 3.19）とフレーム条件の検査
 //! - [`hierarchy`]：Hardy 階層・急増加関数（標準の基本列 α[n] による）、battle の長さ
 
+pub mod bc;
 pub mod bitset;
 pub mod bracket;
 pub mod headbody;
@@ -33,6 +40,7 @@ pub mod letter;
 pub mod ordinal;
 pub mod proof;
 pub mod rc;
+pub mod rcbi;
 pub mod rcproof;
 pub mod spf;
 pub mod transfinite;

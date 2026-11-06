@@ -25,12 +25,22 @@
 //! と定める（先頭の文字そのものも再帰的に基本列で下げる）。文字が有限なら
 //! これまでの worm battle と同じ。a⦃0⦄ = a、a⦃n+1⦄ = a⦃n⦄{n+1} はいつか必ず ⊤ に
 //! なる（Thm 42）が、この事実は ATR₀ では証明できない（Thm 52）。
+//!
+//! # 順序数を使わない比較と正規形
+//! `ordinal`・`cmp_ordinal`・`normal_form` は、いったん Veblen 表記の順序数に
+//! 直して計算する。これとは別に、括弧語だけで完結する版
+//! [`Bracket::cmp_syntactic`]・[`Bracket::normal_form_syntactic`] も用意する
+//! （仕組みは [`BracketOrder`] を参照）。両者が一致することはテストで確かめる。
+//! 正規形の括弧語は [`NfBracket`] として worm・RC の「文字」に使える。
 
 use crate::headbody::is_bnf;
+use crate::letter::Letter;
 use crate::transfinite::hyperexp;
 use crate::veblen::Veblen;
 use crate::worm::Worm;
+use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -178,6 +188,254 @@ impl Iterator for BracketBattle {
 }
 
 // ----------------------------------------------------------------------
+// 順序数を使わない比較と正規形
+// ----------------------------------------------------------------------
+//
+// o*(a) < o*(b) は「a*, b* を worm として <_0 で比べる」ことと同じ。worm の比較は
+// head/body 再帰（headbody.rs、Worms & spiders Thm 3.17）により「文字どうしの大小」
+// だけから決まる。括弧語では文字もまた括弧語なので、文字の比較に同じ比較を
+// 再帰的に使えばよい。こうすると Veblen 表記を一度も通らずに比較できる。
+//
+// 停止性：文字の比較に降りるたびに括弧の入れ子が 1 段浅くなり、worm の比較の
+// 再帰では長さの和が減る。
+
+/// 順序数を使わない括弧語の比較器。部分問題の答えを覚えておく（メモ化）。
+///
+/// 等しさは「同じ順序数を表す」という意味（語として違ってもよい）。
+/// 例：(())() と (()) はどちらも ω を表すので `Equal`。
+#[derive(Default)]
+pub struct BracketOrder {
+    letters: HashMap<(Bracket, Bracket), Ordering>,
+    worms: HashMap<(Vec<Bracket>, Vec<Bracket>, bool), bool>,
+    normal: HashMap<Bracket, Bracket>,
+}
+
+impl BracketOrder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// o*(a) と o*(b) の大小。
+    pub fn cmp(&mut self, a: &Bracket, b: &Bracket) -> Ordering {
+        if a == b {
+            return Ordering::Equal;
+        }
+        let key = (a.clone(), b.clone());
+        if let Some(&o) = self.letters.get(&key) {
+            return o;
+        }
+        let o = if self.worm_rel(&a.0, &b.0, true) {
+            Ordering::Less
+        } else if self.worm_rel(&b.0, &a.0, true) {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        };
+        self.letters.insert((b.clone(), a.clone()), o.reverse());
+        self.letters.insert(key, o);
+        o
+    }
+
+    /// worm として w ◁ v（`strict`）または w ⊴ v。文字の大小は [`Self::cmp`] で比べる。
+    /// 中身は headbody.rs の `HeadBody::rec` と同じ再帰。
+    fn worm_rel(&mut self, w: &[Bracket], v: &[Bracket], strict: bool) -> bool {
+        if v.is_empty() {
+            return !strict && w.is_empty();
+        }
+        if w.is_empty() {
+            return true;
+        }
+        let key = (w.to_vec(), v.to_vec(), strict);
+        if let Some(&ans) = self.worms.get(&key) {
+            return ans;
+        }
+        // λ = 両方に現れる最小の文字
+        let mut lambda = &w[0];
+        for x in w.iter().chain(v) {
+            if self.cmp(x, lambda) == Ordering::Less {
+                lambda = x;
+            }
+        }
+        let lambda = lambda.clone();
+        let (hw, bw) = self.head_body(w, &lambda);
+        let (hv, bv) = self.head_body(v, &lambda);
+        let ans = self.worm_rel(w, bv, false) || (self.worm_rel(bw, v, true) && self.worm_rel(hw, hv, strict));
+        self.worms.insert(key, ans);
+        ans
+    }
+
+    /// h_λ(w)（λ より大きい文字の最長の先頭部分）と b_λ(w)（最初の λ の後ろ）。
+    fn head_body<'a>(&mut self, w: &'a [Bracket], lambda: &Bracket) -> (&'a [Bracket], &'a [Bracket]) {
+        for (i, x) in w.iter().enumerate() {
+            match self.cmp(x, lambda) {
+                Ordering::Greater => {}
+                Ordering::Equal => return (&w[..i], &w[i + 1..]),
+                Ordering::Less => return (&w[..i], &[]), // λ は最小なので起こらない
+            }
+        }
+        (w, &[])
+    }
+
+    /// 正規形（Def. 31）：文字を再帰的に正規形にしてから、worm を Beklemishev
+    /// 標準形（BNF）にする。
+    ///
+    /// BNF への直し方：最小の文字 α ですべて区切った A_k α … α A_0 の各成分を
+    /// 再帰的に BNF にし、**自分より左に自分より大きい成分があるような成分**を、
+    /// 隣の α ごと取り除く。順序数で書けば 1 + o(A) = ω^{o(A_0)} + … + ω^{o(A_k)}
+    /// （右の成分から足す）で、右に大きい項が来ると左の項が吸収されることに当たる。
+    /// 例：(())() は α = ⊤ で成分 [()]、[⊤]。右の ⊤ は左の () より小さいので消えて (())。
+    pub fn normal_form(&mut self, a: &Bracket) -> Bracket {
+        if let Some(nf) = self.normal.get(a) {
+            return nf.clone();
+        }
+        let letters: Vec<Bracket> = a.0.iter().map(|x| self.normal_form(x)).collect();
+        let nf = Bracket(self.bnf(&letters));
+        self.normal.insert(a.clone(), nf.clone());
+        nf
+    }
+
+    /// 文字がすべて正規形の worm を BNF にする。正規形どうしなら
+    /// 「同じ順序数 ⟺ 語として同じ」なので、文字の等しさは == で判定できる。
+    fn bnf(&mut self, w: &[Bracket]) -> Vec<Bracket> {
+        let Some(first) = w.first() else {
+            return Vec::new();
+        };
+        let mut alpha = first;
+        for x in w {
+            if self.cmp(x, alpha) == Ordering::Less {
+                alpha = x;
+            }
+        }
+        let alpha = alpha.clone();
+        // 左から A_k, …, A_0。それぞれを BNF に
+        let comps: Vec<Vec<Bracket>> = w.split(|x| *x == alpha).map(|c| self.bnf(c)).collect();
+        let mut kept: Vec<&Vec<Bracket>> = Vec::new();
+        for (t, c) in comps.iter().enumerate() {
+            // 左側（添字 s < t）の成分のどれかより真に小さければ吸収される
+            let absorbed = (0..t).any(|s| self.worm_rel(c, &comps[s], true));
+            if !absorbed {
+                kept.push(c);
+            }
+        }
+        let mut out = Vec::new();
+        for (i, c) in kept.into_iter().enumerate() {
+            if i > 0 {
+                out.push(alpha.clone());
+            }
+            out.extend(c.iter().cloned());
+        }
+        out
+    }
+
+    /// メモが大きくなりすぎたら捨てる（答えには影響しない）。
+    fn trim(&mut self) {
+        const LIMIT: usize = 1 << 20;
+        if self.letters.len() + self.worms.len() + self.normal.len() > LIMIT {
+            *self = Self::default();
+        }
+    }
+}
+
+// 【Rust メモ】`thread_local!` はスレッドごとに 1 つずつある変数。ここでは比較の
+// メモをプログラム全体で使い回すために使う。`RefCell` は「実行時に借用を検査する
+// 箱」で、`borrow_mut()` で中身を書き換えられる。
+thread_local! {
+    static ORDER: RefCell<BracketOrder> = RefCell::new(BracketOrder::new());
+}
+
+impl Bracket {
+    /// 順序数を使わない比較（結果は `cmp_ordinal` と一致する）。
+    pub fn cmp_syntactic(&self, other: &Bracket) -> Ordering {
+        ORDER.with(|o| {
+            let mut o = o.borrow_mut();
+            o.trim();
+            o.cmp(self, other)
+        })
+    }
+
+    /// 順序数を使わずに求めた正規形（結果は `normal_form` と一致する）。
+    pub fn normal_form_syntactic(&self) -> Bracket {
+        ORDER.with(|o| {
+            let mut o = o.borrow_mut();
+            o.trim();
+            o.normal_form(self)
+        })
+    }
+
+    /// 順序数を使わない正規形の判定（結果は `is_normal` と一致する）。
+    pub fn is_normal_syntactic(&self) -> bool {
+        self.normal_form_syntactic() == *self
+    }
+}
+
+/// 正規形の括弧語。worm・RC の「文字」（[`Letter`]）として使える。
+///
+/// 正規形どうしなら「同じ順序数を表す ⟺ 語として同じ」（Thm 32 の一意性）。
+/// そこで等しさ（==）とハッシュは語のまま比べ、大小（Ord）だけを
+/// 順序数を使わない比較 [`Bracket::cmp_syntactic`] で決める。
+/// これで RC の判定器・導出器を、Veblen 表記を通さずに括弧語の上で動かせる。
+///
+/// 【Rust メモ】中身のフィールドを `pub` にしていないので、外からは
+/// [`NfBracket::new`]（必ず正規形に直す）でしか作れない。こうして
+/// 「中身はいつも正規形」という約束を型で守る。
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct NfBracket(Bracket);
+
+impl NfBracket {
+    /// 括弧語を正規形にして包む。
+    pub fn new(a: &Bracket) -> NfBracket {
+        NfBracket(a.normal_form_syntactic())
+    }
+
+    pub fn bracket(&self) -> &Bracket {
+        &self.0
+    }
+
+    pub fn into_bracket(self) -> Bracket {
+        self.0
+    }
+}
+
+impl Ord for NfBracket {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp_syntactic(&other.0)
+    }
+}
+
+impl PartialOrd for NfBracket {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl fmt::Display for NfBracket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl serde::Serialize for NfBracket {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl Letter for NfBracket {
+    fn zero() -> Self {
+        NfBracket(Bracket::top())
+    }
+
+    fn parse_letter(s: &str) -> Option<Self> {
+        s.parse::<Bracket>().ok().map(|b| NfBracket::new(&b))
+    }
+
+    /// 括弧語を文字に持つ worm は、それ自体が括弧語 (a_1)(a_2)… として表示する。
+    fn fmt_worm(letters: &[Self]) -> String {
+        Bracket(letters.iter().map(|x| x.0.clone()).collect()).to_string()
+    }
+}
+
+// ----------------------------------------------------------------------
 // 表示とパース
 // ----------------------------------------------------------------------
 
@@ -312,6 +570,29 @@ mod tests {
         assert_eq!(b("((()))").fundamental(1), Some(b("(()())(()())")));
         assert_eq!(b("((()))").fundamental(1).unwrap().ordinal().to_string(), "ω^ω^2");
         assert_eq!(Bracket::top().fundamental(3), None);
+    }
+
+    #[test]
+    fn syntactic_comparison() {
+        use Ordering::*;
+        let c = |x: &str, y: &str| b(x).cmp_syntactic(&b(y));
+        assert_eq!(c("()", "(())"), Less); // 1 < ω
+        assert_eq!(c("((()))", "(()())(())"), Greater); // ε_0 > ω^ω
+        assert_eq!(c("(())()", "(())"), Equal); // 語は違うが同じ ω
+        assert_eq!(c("((()))((()))", "((())(()))"), Less); // ε_1 < φ(2, 0)
+        assert_eq!(b("(())()").normal_form_syntactic(), b("(())"));
+        assert!(!b("(())()").is_normal_syntactic());
+        assert!(b("((()))").is_normal_syntactic());
+    }
+
+    #[test]
+    fn nf_bracket_letters() {
+        // 括弧語を文字にした worm：((()))(()) は ⟨ε_0⟩… ではなく文字 (()) = ω と () = 1 の worm
+        let x = NfBracket::new(&b("(())()")); // 正規形 (()) に直る
+        assert_eq!(x.bracket(), &b("(())"));
+        let y = NfBracket::new(&b("()"));
+        assert!(y < x);
+        assert_eq!(NfBracket::fmt_worm(&[x, y]), "((()))(())");
     }
 
     #[test]
