@@ -28,27 +28,30 @@
 //! 部分証明は判断ごとにメモ化して共有するので、証明は DAG になる。
 
 use crate::headbody::{HeadBody, head_body};
+use crate::letter::Letter;
 use crate::proof::{self, Builder, Calculus, Proof};
 use crate::rc;
 use crate::spf::Spf;
 use crate::worm::Worm;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fmt;
+use std::marker::PhantomData;
 
-/// worm のシーケント A ⊢ B。
+/// worm のシーケント A ⊢ B（文字は自然数でも順序数でもよい）。
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize)]
-pub struct WSeq {
-    pub lhs: Worm,
-    pub rhs: Worm,
+pub struct WSeq<L = u32> {
+    pub lhs: Worm<L>,
+    pub rhs: Worm<L>,
 }
 
-impl WSeq {
-    fn new(lhs: &[u32], rhs: &[u32]) -> Self {
+impl<L: Letter> WSeq<L> {
+    fn new(lhs: &[L], rhs: &[L]) -> Self {
         WSeq { lhs: Worm::new(lhs.to_vec()), rhs: Worm::new(rhs.to_vec()) }
     }
 }
 
-impl fmt::Display for WSeq {
+impl<L: Letter> fmt::Display for WSeq<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ⊢ {}", self.lhs, self.rhs)
     }
@@ -79,16 +82,19 @@ impl fmt::Display for WcRule {
     }
 }
 
-/// WC という証明体系（検査の規則だけを定める）。
-pub struct Wc;
+/// WC という証明体系（検査の規則だけを定める）。文字の型ごとに 1 つ。
+///
+/// 【Rust メモ】`PhantomData<L>` は「中身は持たないが、型 L に関係している」
+/// ことをコンパイラに伝えるための印。
+pub struct Wc<L = u32>(PhantomData<L>);
 
-pub type WcProof = Proof<WSeq, WcRule>;
+pub type WcProof<L = u32> = Proof<WSeq<L>, WcRule>;
 
-impl Calculus for Wc {
-    type Judgment = WSeq;
+impl<L: Letter> Calculus for Wc<L> {
+    type Judgment = WSeq<L>;
     type Rule = WcRule;
 
-    fn check_step(rule: &WcRule, prem: &[&WSeq], c: &WSeq) -> Result<(), String> {
+    fn check_step(rule: &WcRule, prem: &[&WSeq<L>], c: &WSeq<L>) -> Result<(), String> {
         let (l, r) = (c.lhs.letters(), c.rhs.letters());
         let fail = |msg: &str| Err(msg.to_string());
         match (rule, prem) {
@@ -117,13 +123,13 @@ impl Calculus for Wc {
                 _ => fail("Nec の形 A ⊢ B ⇒ αA ⊢ αB ではない"),
             },
             (WcRule::R3, [p, q]) => {
-                let Some(&alpha) = q.rhs.letters().first() else {
+                let Some(alpha) = q.rhs.letters().first() else {
                     return fail("R3 の第 2 前提の右辺が αC の形ではない");
                 };
                 let b = p.rhs.letters();
                 let ok = p.lhs == c.lhs
                     && q.lhs == c.lhs
-                    && b.iter().all(|&x| x > alpha)
+                    && b.iter().all(|x| x > alpha)
                     && r.len() == b.len() + q.rhs.len()
                     && r[..b.len()] == *b
                     && r[b.len()..] == *q.rhs.letters();
@@ -135,37 +141,47 @@ impl Calculus for Wc {
 }
 
 /// 証明を検査し、結論を返す。
-pub fn check(p: &WcProof) -> Result<&WSeq, String> {
-    proof::check::<Wc>(p)
+pub fn check<L: Letter>(p: &WcProof<L>) -> Result<&WSeq<L>, String> {
+    proof::check::<Wc<L>>(p)
 }
 
 /// RC（＝ GLP）で A ⊢ B か。証明器の前提条件の確認に使う。
-fn rc_holds(a: &[u32], b: &[u32]) -> bool {
+fn rc_holds<L: Letter>(a: &[L], b: &[L]) -> bool {
     rc::entails(&Spf::from(&Worm::new(a.to_vec())), &Spf::from(&Worm::new(b.to_vec())))
 }
 
-fn cons(x: u32, rest: &[u32]) -> Vec<u32> {
+fn cons<L: Clone>(x: L, rest: &[L]) -> Vec<L> {
     let mut v = Vec::with_capacity(rest.len() + 1);
     v.push(x);
     v.extend_from_slice(rest);
     v
 }
 
-/// WC の証明を組み立てる。
-#[derive(Default)]
-pub struct Prover {
-    b: Builder<WSeq, WcRule>,
-    hb: HeadBody,
+/// 最小の文字（空でないことが前提）。
+fn min_of<L: Letter>(a: &[L], b: &[L]) -> L {
+    a.iter().chain(b).min().expect("空でない").clone()
 }
 
-impl Prover {
+/// WC の証明を組み立てる。
+pub struct Prover<L = u32> {
+    b: Builder<WSeq<L>, WcRule>,
+    hb: HeadBody<L>,
+}
+
+impl<L: Letter> Default for Prover<L> {
+    fn default() -> Self {
+        Prover { b: Builder::new(), hb: HeadBody::new() }
+    }
+}
+
+impl<L: Letter> Prover<L> {
     pub fn new() -> Self {
         Self::default()
     }
 
     // ---------------- 規則を 1 回使うだけの小さな部品 ----------------
 
-    fn axiom(&mut self, rule: WcRule, l: &[u32], r: &[u32]) -> usize {
+    fn axiom(&mut self, rule: WcRule, l: &[L], r: &[L]) -> usize {
         self.b.add(rule, vec![], WSeq::new(l, r))
     }
 
@@ -183,9 +199,9 @@ impl Prover {
     }
 
     /// p: A ⊢ B から γA ⊢ γB
-    fn nec(&mut self, g: u32, p: usize) -> usize {
+    fn nec(&mut self, g: &L, p: usize) -> usize {
         let c = self.b.conclusion(p).clone();
-        let seq = WSeq::new(&cons(g, c.lhs.letters()), &cons(g, c.rhs.letters()));
+        let seq = WSeq::new(&cons(g.clone(), c.lhs.letters()), &cons(g.clone(), c.rhs.letters()));
         self.b.add(WcRule::Nec, vec![p], seq)
     }
 
@@ -199,7 +215,7 @@ impl Prover {
     // ---------------- 補題 ----------------
 
     /// 先頭部分の補題（論文 Lemma 3.3）：full ⊢ full[..k]
-    fn prefix(&mut self, full: &[u32], k: usize) -> usize {
+    fn prefix(&mut self, full: &[L], k: usize) -> usize {
         if let Some(id) = self.b.lookup(&WSeq::new(full, &full[..k])) {
             return id;
         }
@@ -207,65 +223,65 @@ impl Prover {
             return self.axiom(WcRule::A1, full, &[]);
         }
         let p = self.prefix(&full[1..], k - 1);
-        self.nec(full[0], p)
+        self.nec(&full[0], p)
     }
 
     /// 恒等式 A ⊢ A（論文 Cor. 3.4）
-    pub fn identity(&mut self, a: &[u32]) -> usize {
+    pub fn identity(&mut self, a: &[L]) -> usize {
         self.prefix(a, a.len())
     }
 
     /// 接尾部分の補題（論文 Lemma 3.5）：v = X μ Y（X の文字は μ より大）のとき v ⊢ μY。
     /// `i` は v[i] = μ となる位置。
-    fn suffix(&mut self, v: &[u32], i: usize) -> usize {
+    fn suffix(&mut self, v: &[L], i: usize) -> usize {
         if let Some(id) = self.b.lookup(&WSeq::new(v, &v[i..])) {
             return id;
         }
         if i == 0 {
             return self.identity(v);
         }
-        let mu = v[i];
+        let mu = &v[i];
         let p = self.suffix(&v[1..], i - 1); // v[1..] ⊢ μY
-        let n = self.nec(v[0], p); // v ⊢ γμY
+        let n = self.nec(&v[0], p); // v ⊢ γμY
         let tail = &v[i..]; // μY
-        let a3 = self.axiom(WcRule::A3, &cons(v[0], tail), &cons(mu, tail)); // γμY ⊢ μμY
-        let a2 = self.axiom(WcRule::A2, &cons(mu, tail), tail); // μμY ⊢ μY
+        let a3 = self.axiom(WcRule::A3, &cons(v[0].clone(), tail), &cons(mu.clone(), tail)); // γμY ⊢ μμY
+        let a2 = self.axiom(WcRule::A2, &cons(mu.clone(), tail), tail); // μμY ⊢ μY
         let c = self.cut(n, a3);
         self.cut(c, a2)
     }
 
     /// A3 を使って λX ⊢ μX（λ > μ）を足す：p: A ⊢ λX から A ⊢ μX
-    fn lower(&mut self, p: usize, mu: u32) -> usize {
+    fn lower(&mut self, p: usize, mu: &L) -> usize {
         let c = self.b.conclusion(p).clone();
         let r = c.rhs.letters();
-        if r[0] == mu {
+        if r[0] == *mu {
             return p;
         }
-        let a3 = self.axiom(WcRule::A3, r, &cons(mu, &r[1..]));
+        let a3 = self.axiom(WcRule::A3, r, &cons(mu.clone(), &r[1..]));
         self.cut(p, a3)
     }
 
     // ---------------- 本体 ----------------
 
     /// A ⊢ B の証明（RC で成り立つことが前提）。
-    pub fn prove(&mut self, a: &[u32], b: &[u32]) -> usize {
+    pub fn prove(&mut self, a: &[L], b: &[L]) -> usize {
         debug_assert!(rc_holds(a, b), "前提違反: {:?} ⊢ {:?}", a, b);
         if let Some(id) = self.b.lookup(&WSeq::new(a, b)) {
             return id;
         }
-        let Some((&alpha, b0)) = b.split_first() else {
+        let Some((alpha, b0)) = b.split_first() else {
             return self.axiom(WcRule::A1, a, &[]);
         };
         // A = hA rA, b0 = hB rB（h は文字が α 以上の最長の先頭部分）
-        let ka = a.iter().position(|&x| x < alpha).unwrap_or(a.len());
-        let kb = b0.iter().position(|&x| x < alpha).unwrap_or(b0.len());
+        let ka = a.iter().position(|x| x < alpha).unwrap_or(a.len());
+        let kb = b0.iter().position(|x| x < alpha).unwrap_or(b0.len());
         let (h_a, r_a) = a.split_at(ka);
         let (h_b, r_b) = b0.split_at(kb);
         if r_a.is_empty() && r_b.is_empty() {
             return self.prove_lt(alpha, b0, a);
         }
         // Lemma 4.5 の分解
-        let p1 = self.prove(h_a, &cons(alpha, h_b)); // hA ⊢ α hB
+        let p1 = self.prove(h_a, &cons(alpha.clone(), h_b)); // hA ⊢ α hB
         let pre = self.prefix(a, ka); // A ⊢ hA
         let c = self.cut(pre, p1); // A ⊢ α hB
         if r_b.is_empty() {
@@ -276,8 +292,8 @@ impl Prover {
     }
 
     /// v ⊢ μw の証明（v, w の文字はすべて μ 以上、RC で成り立つことが前提）。
-    fn prove_lt(&mut self, mu: u32, w: &[u32], v: &[u32]) -> usize {
-        let goal = cons(mu, w);
+    fn prove_lt(&mut self, mu: &L, w: &[L], v: &[L]) -> usize {
+        let goal = cons(mu.clone(), w);
         debug_assert!(rc_holds(v, &goal), "前提違反: {:?} ⊢ {:?}", v, goal);
         if let Some(id) = self.b.lookup(&WSeq::new(v, &goal)) {
             return id;
@@ -287,9 +303,9 @@ impl Prover {
             let p = self.prefix(v, 1);
             return self.lower(p, mu);
         }
-        let lambda = *w.iter().chain(v).min().unwrap();
-        if lambda > mu {
-            let p = self.prove_lt(lambda, w, v); // v ⊢ λw
+        let lambda = min_of(w, v);
+        if lambda > *mu {
+            let p = self.prove_lt(&lambda, w, v); // v ⊢ λw
             return self.lower(p, mu);
         }
         // λ = μ：Thm 3.17 の分岐
@@ -302,7 +318,7 @@ impl Prover {
             if self.hb.lt(w, bv) {
                 let q = self.prove_lt(mu, w, bv); // b(v) ⊢ μw
                 let n = self.nec(mu, q); // μ b(v) ⊢ μμw
-                let a2 = self.axiom(WcRule::A2, &cons(mu, &goal), &goal);
+                let a2 = self.axiom(WcRule::A2, &cons(mu.clone(), &goal), &goal);
                 let c = self.cut(s, n);
                 self.cut(c, a2)
             } else {
@@ -312,15 +328,15 @@ impl Prover {
             }
         } else if bw.is_empty() && hw.len() == w.len() {
             // (b) で μ ∉ w：v ⊢ h(v) ⊢ μ' w ⊢ μw
-            let mu2 = *w.iter().chain(hv).min().unwrap();
-            let p1 = self.prove_lt(mu2, w, hv);
+            let mu2 = min_of(w, hv);
+            let p1 = self.prove_lt(&mu2, w, hv);
             let pre = self.prefix(v, hv.len());
             let c = self.cut(pre, p1);
             self.lower(c, mu)
         } else {
             // (b) で w = h(w) μ b(w)
-            let mu2 = if hw.is_empty() { hv[0] } else { *hw.iter().chain(hv).min().unwrap() };
-            let p1 = self.prove_lt(mu2, hw, hv); // h(v) ⊢ μ' h(w)
+            let mu2 = if hw.is_empty() { hv[0].clone() } else { min_of(hw, hv) };
+            let p1 = self.prove_lt(&mu2, hw, hv); // h(v) ⊢ μ' h(w)
             let pre = self.prefix(v, hv.len()); // v ⊢ h(v)
             let c = self.cut(pre, p1); // v ⊢ μ' h(w)
             let p2 = self.prove_lt(mu, bw, v); // v ⊢ μ b(w)
@@ -330,7 +346,7 @@ impl Prover {
     }
 
     /// 組み立てた DAG から `root` の証明を取り出す。
-    pub fn finish(self, root: usize) -> WcProof {
+    pub fn finish(self, root: usize) -> WcProof<L> {
         self.b.finish(root)
     }
 }
@@ -343,37 +359,42 @@ impl Prover {
 ///   - rA, rB がともに空なら、head/body 比較（Thm 3.17）で B₀ ◁ A か。
 ///   - そうでなければ hA ⊢ αhB かつ A ⊢ rB（Lemma 4.5 の分解）。
 ///
-/// 現れる部分問題は「A, B の連続部分列」と「文字 + 連続部分列」の組に限られ、
-/// メモ化しているので多項式時間で終わる（`algorithms.md` 参照）。
-/// 正しさは Lemma 4.5 と Thm 3.17 に依拠する。テストでは RC と突き合わせている。
-#[derive(Default)]
-pub struct Decider {
-    hb: HeadBody,
-    memo: std::collections::HashMap<(Vec<u32>, Vec<u32>), bool>,
+/// 現れる部分問題は限られていて、メモ化しているので多項式時間で終わる
+/// （`algorithms.md` §1 参照）。正しさは Lemma 4.5 と Thm 3.17 に依拠する。
+/// テストでは RC と突き合わせている。
+pub struct Decider<L = u32> {
+    hb: HeadBody<L>,
+    memo: HashMap<(Vec<L>, Vec<L>), bool>,
 }
 
-impl Decider {
+impl<L: Letter> Default for Decider<L> {
+    fn default() -> Self {
+        Decider { hb: HeadBody::new(), memo: HashMap::new() }
+    }
+}
+
+impl<L: Letter> Decider<L> {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// A ⊢ B か。
-    pub fn decide(&mut self, a: &[u32], b: &[u32]) -> bool {
-        let Some((&alpha, b0)) = b.split_first() else {
+    pub fn decide(&mut self, a: &[L], b: &[L]) -> bool {
+        let Some((alpha, b0)) = b.split_first() else {
             return true;
         };
         let key = (a.to_vec(), b.to_vec());
         if let Some(&ans) = self.memo.get(&key) {
             return ans;
         }
-        let ka = a.iter().position(|&x| x < alpha).unwrap_or(a.len());
-        let kb = b0.iter().position(|&x| x < alpha).unwrap_or(b0.len());
+        let ka = a.iter().position(|x| x < alpha).unwrap_or(a.len());
+        let kb = b0.iter().position(|x| x < alpha).unwrap_or(b0.len());
         let (h_a, r_a) = a.split_at(ka);
         let (h_b, r_b) = b0.split_at(kb);
         let ans = if r_a.is_empty() && r_b.is_empty() {
             self.hb.lt(b0, a)
         } else {
-            self.decide(h_a, &cons(alpha, h_b)) && self.decide(a, r_b)
+            self.decide(h_a, &cons(alpha.clone(), h_b)) && self.decide(a, r_b)
         };
         self.memo.insert(key, ans);
         ans
@@ -381,12 +402,12 @@ impl Decider {
 }
 
 /// WC（＝ RC ＝ GLP）で worm シーケント A ⊢ B が成り立つか（構文的判定）。
-pub fn decide(a: &Worm, b: &Worm) -> bool {
+pub fn decide<L: Letter>(a: &Worm<L>, b: &Worm<L>) -> bool {
     Decider::new().decide(a.letters(), b.letters())
 }
 
 /// A ⊢ B の WC 証明を作る。成り立たなければ `Err`。
-pub fn prove(a: &Worm, b: &Worm) -> Result<WcProof, String> {
+pub fn prove<L: Letter>(a: &Worm<L>, b: &Worm<L>) -> Result<WcProof<L>, String> {
     if !decide(a, b) {
         return Err(format!("{a} ⊢ {b} は成り立たない（WC でも RC でも証明できない）"));
     }
@@ -396,7 +417,7 @@ pub fn prove(a: &Worm, b: &Worm) -> Result<WcProof, String> {
 }
 
 /// A <_n B（B ⊢ ⟨n⟩A）の WC 証明を作る。
-pub fn prove_lt(n: u32, a: &Worm, b: &Worm) -> Result<WcProof, String> {
+pub fn prove_lt<L: Letter>(n: L, a: &Worm<L>, b: &Worm<L>) -> Result<WcProof<L>, String> {
     prove(b, &Worm::new(cons(n, a.letters())))
 }
 

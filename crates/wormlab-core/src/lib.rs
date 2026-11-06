@@ -19,9 +19,11 @@
 //!
 //! 段階2（ε0 を超える）：
 //! - [`veblen`]：Γ0 未満の順序数（Veblen 関数 φ による正規形）
+//! - [`letter`]：worm の文字の型（u32 と Veblen）。worm・RC・head/body・WC はこれについて汎用
 
 pub mod bitset;
 pub mod headbody;
+pub mod letter;
 pub mod ordinal;
 pub mod proof;
 pub mod rc;
@@ -32,5 +34,6 @@ pub mod worm;
 
 pub use ordinal::Ordinal;
 pub use spf::{Sequent, Spf};
+pub use letter::Letter;
 pub use veblen::Veblen;
 pub use worm::Worm;

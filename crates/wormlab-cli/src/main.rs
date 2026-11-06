@@ -10,20 +10,38 @@
 //!   wormlab wc     "1 1 |- 0 1 0 1"  worm シーケントの WC 証明（--json で JSON）
 //!   wormlab wclt   0 "1 1" "2"       A <_n B（B ⊢ nA）の WC 証明
 //!   wormlab ordinal "ω^ε_0 + 1"      Γ0 未満の順序数を正規形にする（2 つ渡すと比較）
+//!
+//! cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
 
 use serde_json::json;
 use std::cmp::Ordering;
 use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
-use wormlab_core::{Sequent, Veblen, Worm, headbody, rc};
+use wormlab_core::{Letter, Sequent, Veblen, Worm, headbody, rc};
 
 fn parse(s: &str) -> Result<Worm, String> {
     s.parse::<Worm>().map_err(|e| e.to_string())
 }
 
+/// 文字が順序数の worm として読む（"3 3 3" のような自然数の worm も受け付ける）。
+fn parse_o(s: &str) -> Result<Worm<Veblen>, String> {
+    if let Ok(w) = s.parse::<Worm>() {
+        return Ok(w.map(|&n| Veblen::nat(n as u64)));
+    }
+    s.parse::<Worm<Veblen>>().map_err(|e| e.to_string())
+}
+
+/// すべて自然数の worm として読めるか（読めなければ順序数の worm として扱う）。
+fn all_nat(xs: &[&String]) -> bool {
+    xs.iter().all(|s| s.parse::<Worm>().is_ok())
+}
+
 /// 証明を検査してから表示する（`json` なら JSON で）。
-fn show_proof(p: &WcProof, json: bool) -> Result<(), String> {
+///
+/// 【Rust メモ】`<L: Letter>` を付けると、自然数の worm の証明にも
+/// 順序数の worm の証明にも使える 1 つの関数になる。
+fn show_proof<L: Letter>(p: &WcProof<L>, json: bool) -> Result<(), String> {
     let concl = wc::check(p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
     if json {
         println!("{}", serde_json::to_string_pretty(p).map_err(|e| e.to_string())?);
@@ -83,6 +101,27 @@ fn run(args: &[String]) -> Result<(), String> {
             for w in &worms {
                 let pis: Vec<String> = w.pi_ordinals(k).iter().map(|x| x.to_string()).collect();
                 println!("{w},{},{},{}", w.ordinal(), w.normal_form(), pis.join(","));
+            }
+            Ok(())
+        }
+        [cmd, a, b] if cmd == "cmp" && !all_nat(&[a, b]) => {
+            // 文字が順序数の worm：head/body と RC の 2 つの方法で比べる
+            let (x, y) = (parse_o(a)?, parse_o(b)?);
+            let mut hb = headbody::HeadBody::new();
+            let by_hb = (hb.lt(x.letters(), y.letters()), hb.lt(y.letters(), x.letters()));
+            let by_rc = (x.lt_n(&y, Veblen::zero()), y.lt_n(&x, Veblen::zero()));
+            let rel = match by_hb {
+                (true, _) => "<_0",
+                (_, true) => ">_0",
+                _ => "≡",
+            };
+            let agree = by_hb == by_rc;
+            if json {
+                let v = json!({ "a": x, "b": y, "relation": rel, "methods_agree": agree });
+                println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+            } else {
+                println!("{x}  {rel}  {y}");
+                println!("  RC / head-body の判定: {}", if agree { "一致" } else { "不一致（バグです）" });
             }
             Ok(())
         }
@@ -147,10 +186,17 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         [cmd, n, a, b] if cmd == "lt" => {
-            let n: u32 = n.parse().map_err(|_| format!("n が数値ではありません: {n}"))?;
-            let (x, y) = (parse(a)?, parse(b)?);
-            let ans = x.lt_n(&y, n);
-            println!("{x}  <_{n}  {y}  :  {}", if ans { "成り立つ" } else { "成り立たない" });
+            let say = |x: &dyn std::fmt::Display, n: &dyn std::fmt::Display, y: &dyn std::fmt::Display, ans: bool| {
+                println!("{x}  <_{n}  {y}  :  {}", if ans { "成り立つ" } else { "成り立たない" })
+            };
+            if let (Ok(k), true) = (n.parse::<u32>(), all_nat(&[a, b])) {
+                let (x, y) = (parse(a)?, parse(b)?);
+                say(&x, &k, &y, x.lt_n(&y, k));
+            } else {
+                let k: Veblen = n.parse().map_err(|_| format!("n が順序数として読めません: {n}"))?;
+                let (x, y) = (parse_o(a)?, parse_o(b)?);
+                say(&x, &k, &y, x.lt_n(&y, k.clone()));
+            }
             Ok(())
         }
         [cmd, s] if cmd == "wc" => {
@@ -158,13 +204,20 @@ fn run(args: &[String]) -> Result<(), String> {
                 .split_once("⊢")
                 .or_else(|| s.split_once("|-"))
                 .ok_or("'⊢' または '|-' が必要です")?;
-            let p = wc::prove(&parse(l)?, &parse(r)?)?;
-            show_proof(&p, json)
+            let (l, r) = (l.to_string(), r.to_string());
+            if all_nat(&[&l, &r]) {
+                show_proof(&wc::prove(&parse(&l)?, &parse(&r)?)?, json)
+            } else {
+                show_proof(&wc::prove(&parse_o(&l)?, &parse_o(&r)?)?, json)
+            }
         }
         [cmd, n, a, b] if cmd == "wclt" => {
-            let n: u32 = n.parse().map_err(|_| format!("n が数値ではありません: {n}"))?;
-            let p = wc::prove_lt(n, &parse(a)?, &parse(b)?)?;
-            show_proof(&p, json)
+            if let (Ok(k), true) = (n.parse::<u32>(), all_nat(&[a, b])) {
+                show_proof(&wc::prove_lt(k, &parse(a)?, &parse(b)?)?, json)
+            } else {
+                let k: Veblen = n.parse().map_err(|_| format!("n が順序数として読めません: {n}"))?;
+                show_proof(&wc::prove_lt(k, &parse_o(a)?, &parse_o(b)?)?, json)
+            }
         }
         [cmd, a] if cmd == "ordinal" => {
             let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
@@ -221,6 +274,7 @@ const USAGE: &str = "使い方:
   wormlab wclt   <n> <worm> <worm> A <_n B（B ⊢ nA）の WC 証明
   wormlab ordinal <順序数> [<順序数>]  Γ0 未満の順序数の正規形（2 つなら比較）
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
+  文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（cmp・lt・wc・wclt で使える）
 順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）";
 
 fn main() -> ExitCode {

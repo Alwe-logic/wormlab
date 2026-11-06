@@ -6,50 +6,51 @@
 //!
 //! 否定も含意も ∨ もない。worm はちょうど「∧ を含まない閉じた強正値式」。
 
+use crate::letter::Letter;
 use crate::worm::Worm;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
-/// 強正値式。
+/// 強正値式。モダリティの番号の型 `L` の既定は自然数 `u32`。
 ///
 /// 【Rust メモ】再帰的な enum は、自分自身を直接は含めない（サイズが
 /// 決まらないため）。`Box<Spf>` は「ヒープ上の Spf へのポインタ」で、
 /// これを挟むと再帰型が作れる。
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum Spf {
+pub enum Spf<L = u32> {
     Top,
     Var(String),
-    And(Box<Spf>, Box<Spf>),
-    Dia(u32, Box<Spf>),
+    And(Box<Spf<L>>, Box<Spf<L>>),
+    Dia(L, Box<Spf<L>>),
 }
 
-impl Spf {
-    pub fn var(name: &str) -> Spf {
+impl<L: Letter> Spf<L> {
+    pub fn var(name: &str) -> Spf<L> {
         Spf::Var(name.to_string())
     }
 
-    pub fn and(a: Spf, b: Spf) -> Spf {
+    pub fn and(a: Spf<L>, b: Spf<L>) -> Spf<L> {
         Spf::And(Box::new(a), Box::new(b))
     }
 
-    pub fn dia(n: u32, a: Spf) -> Spf {
+    pub fn dia(n: L, a: Spf<L>) -> Spf<L> {
         Spf::Dia(n, Box::new(a))
     }
 
     /// 複数の式の連言（空なら ⊤）。
-    pub fn conj(items: impl IntoIterator<Item = Spf>) -> Spf {
+    pub fn conj(items: impl IntoIterator<Item = Spf<L>>) -> Spf<L> {
         items.into_iter().reduce(Spf::and).unwrap_or(Spf::Top)
     }
 
     /// 式に現れるモダリティの番号の集合。
-    pub fn modalities(&self) -> BTreeSet<u32> {
+    pub fn modalities(&self) -> BTreeSet<L> {
         let mut out = BTreeSet::new();
         self.collect_modalities(&mut out);
         out
     }
 
-    fn collect_modalities(&self, out: &mut BTreeSet<u32>) {
+    fn collect_modalities(&self, out: &mut BTreeSet<L>) {
         match self {
             Spf::Top | Spf::Var(_) => {}
             Spf::And(a, b) => {
@@ -57,7 +58,7 @@ impl Spf {
                 b.collect_modalities(out);
             }
             Spf::Dia(n, a) => {
-                out.insert(*n);
+                out.insert(n.clone());
                 a.collect_modalities(out);
             }
         }
@@ -73,14 +74,14 @@ impl Spf {
     }
 
     /// worm なら worm に戻す（∧ や変数を含めば `None`）。
-    pub fn as_worm(&self) -> Option<Worm> {
+    pub fn as_worm(&self) -> Option<Worm<L>> {
         let mut letters = Vec::new();
         let mut cur = self;
         loop {
             match cur {
                 Spf::Top => return Some(Worm::new(letters)),
                 Spf::Dia(n, a) => {
-                    letters.push(*n);
+                    letters.push(n.clone());
                     cur = a;
                 }
                 _ => return None,
@@ -89,13 +90,13 @@ impl Spf {
     }
 }
 
-impl From<&Worm> for Spf {
+impl<L: Letter> From<&Worm<L>> for Spf<L> {
     /// worm n_1 … n_k を ⟨n_1⟩…⟨n_k⟩⊤ に変換する。
-    fn from(w: &Worm) -> Spf {
+    fn from(w: &Worm<L>) -> Spf<L> {
         w.letters()
             .iter()
             .rev()
-            .fold(Spf::Top, |acc, &n| Spf::dia(n, acc))
+            .fold(Spf::Top, |acc, n| Spf::dia(n.clone(), acc))
     }
 }
 
@@ -103,7 +104,7 @@ impl From<&Worm> for Spf {
 // 表示
 // ----------------------------------------------------------------------
 
-impl fmt::Display for Spf {
+impl<L: Letter> fmt::Display for Spf<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Spf::Top => write!(f, "⊤"),
@@ -262,12 +263,12 @@ impl FromStr for Spf {
 
 /// シーケント A ⊢ B。
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Sequent {
-    pub lhs: Spf,
-    pub rhs: Spf,
+pub struct Sequent<L = u32> {
+    pub lhs: Spf<L>,
+    pub rhs: Spf<L>,
 }
 
-impl fmt::Display for Sequent {
+impl<L: Letter> fmt::Display for Sequent<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ⊢ {}", self.lhs, self.rhs)
     }

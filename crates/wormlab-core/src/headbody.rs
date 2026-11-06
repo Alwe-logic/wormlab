@@ -21,43 +21,49 @@
 //! o(A)（順序数）と RC（モデル）に続く、3 本目の独立な判定法。
 //! 順序数を使わないので、文字が順序数の worm にもそのまま一般化できる。
 
+use crate::letter::Letter;
 use crate::worm::Worm;
 use std::collections::HashMap;
 
-/// 比較のメモ（同じ部分問題を何度も解かないため）。
+/// 比較のメモ（同じ部分問題を何度も解かないため）。文字は自然数でも順序数でもよい。
 ///
 /// 【Rust メモ】`HashMap<K, V>` は辞書。キーにタプルを使える。
-#[derive(Default)]
-pub struct HeadBody {
-    memo: HashMap<(Vec<u32>, Vec<u32>, bool), bool>,
+pub struct HeadBody<L = u32> {
+    memo: HashMap<(Vec<L>, Vec<L>, bool), bool>,
+}
+
+impl<L> Default for HeadBody<L> {
+    fn default() -> Self {
+        HeadBody { memo: HashMap::new() }
+    }
 }
 
 /// h_λ(w)（λ より大きい文字の最長の先頭部分）と b_λ(w)（最初の λ の後ろ）。
-pub fn head_body(w: &[u32], lambda: u32) -> (&[u32], &[u32]) {
-    match w.iter().position(|&x| x <= lambda) {
+pub fn head_body<'a, L: Ord>(w: &'a [L], lambda: &L) -> (&'a [L], &'a [L]) {
+    match w.iter().position(|x| x <= lambda) {
         None => (w, &[]),
-        Some(i) if w[i] == lambda => (&w[..i], &w[i + 1..]),
+        Some(i) if w[i] == *lambda => (&w[..i], &w[i + 1..]),
         // λ 未満の文字は来ない前提（λ は最小値）
         Some(i) => (&w[..i], &[]),
     }
 }
 
-impl HeadBody {
+impl<L: Letter> HeadBody<L> {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// w ◁ v（μ ≤ min(w v) の範囲では μ によらない）
-    pub fn lt(&mut self, w: &[u32], v: &[u32]) -> bool {
+    pub fn lt(&mut self, w: &[L], v: &[L]) -> bool {
         self.rec(w, v, true)
     }
 
     /// w ⊴ v
-    pub fn le(&mut self, w: &[u32], v: &[u32]) -> bool {
+    pub fn le(&mut self, w: &[L], v: &[L]) -> bool {
         self.rec(w, v, false)
     }
 
-    fn rec(&mut self, w: &[u32], v: &[u32], strict: bool) -> bool {
+    fn rec(&mut self, w: &[L], v: &[L], strict: bool) -> bool {
         // 基底：⊤ が絡む場合
         if v.is_empty() {
             return !strict && w.is_empty(); // w ◁ ⊤ は偽、w ⊴ ⊤ ⟺ w = ⊤
@@ -69,9 +75,9 @@ impl HeadBody {
         if let Some(&ans) = self.memo.get(&key) {
             return ans;
         }
-        let lambda = *w.iter().chain(v).min().unwrap();
-        let (hw, bw) = head_body(w, lambda);
-        let (hv, bv) = head_body(v, lambda);
+        let lambda = w.iter().chain(v).min().unwrap().clone();
+        let (hw, bw) = head_body(w, &lambda);
+        let (hv, bv) = head_body(v, &lambda);
         // (a) w ⊴ b_λ(v)
         let ans = self.rec(w, bv, false)
             // (b) b_λ(w) ◁ v かつ h_λ(w) ◁ h_λ(v)（2 では ⊴）
@@ -83,15 +89,15 @@ impl HeadBody {
 
 /// w <_μ v（v ⊢ ⟨μ⟩w）を head/body 再帰で判定する。
 /// 前提 μ ≤ min(w v) を満たさなければ `None`。
-pub fn lt(mu: u32, w: &Worm, v: &Worm) -> Option<bool> {
-    if !w.is_n_worm(mu) || !v.is_n_worm(mu) {
+pub fn lt<L: Letter>(mu: L, w: &Worm<L>, v: &Worm<L>) -> Option<bool> {
+    if !w.is_n_worm(mu.clone()) || !v.is_n_worm(mu) {
         return None;
     }
     Some(HeadBody::new().lt(w.letters(), v.letters()))
 }
 
 /// GLP ⊢ w ↔ v を head/body 再帰で判定する（μ = 0 として）。
-pub fn equiv(w: &Worm, v: &Worm) -> bool {
+pub fn equiv<L: Letter>(w: &Worm<L>, v: &Worm<L>) -> bool {
     let mut hb = HeadBody::new();
     hb.le(w.letters(), v.letters()) && hb.le(v.letters(), w.letters())
 }
@@ -106,8 +112,8 @@ mod tests {
 
     #[test]
     fn decomposition() {
-        assert_eq!(head_body(&[2, 3, 1, 4, 1, 2], 1), (&[2u32, 3][..], &[4u32, 1, 2][..]));
-        assert_eq!(head_body(&[2, 3], 1), (&[2u32, 3][..], &[][..]));
+        assert_eq!(head_body(&[2u32, 3, 1, 4, 1, 2], &1), (&[2u32, 3][..], &[4u32, 1, 2][..]));
+        assert_eq!(head_body(&[2u32, 3], &1), (&[2u32, 3][..], &[][..]));
     }
 
     #[test]

@@ -30,37 +30,41 @@
 //! 全体が多項式時間の判定になる。偽のときは、そのモデルが反例になる。
 
 use crate::bitset::BitSet;
+use crate::letter::Letter;
 use crate::spf::{Sequent, Spf};
 use crate::worm::Worm;
 use std::collections::BTreeSet;
 use std::fmt;
 
 /// 閉包済みの有限 Kripke モデル。点 0 が根。
+///
+/// モダリティの番号は自然数でも順序数でもよい（大小比較しか使わない）。
+/// 署名 S は有限集合なので、関係は S の要素ごとに 1 本ずつ持つ。
 #[derive(Clone, Debug)]
-pub struct Model {
+pub struct Model<L = u32> {
     /// 各点で真な変数
     labels: Vec<BTreeSet<String>>,
     /// 署名 S（昇順）
-    sig: Vec<u32>,
+    sig: Vec<L>,
     /// rel[i][x] = x の R_{sig[i]}-後続の集合
     rel: Vec<Vec<BitSet>>,
     /// 標準木の辺 (親, モダリティ, 子)
-    tree_edges: Vec<(usize, u32, usize)>,
+    tree_edges: Vec<(usize, L, usize)>,
 }
 
-impl Model {
+impl<L: Letter> Model<L> {
     /// A の標準木を作り、署名 `sig` について RC 閉包を取る。
-    pub fn canonical(a: &Spf, sig: &BTreeSet<u32>) -> Model {
+    pub fn canonical(a: &Spf<L>, sig: &BTreeSet<L>) -> Model<L> {
         let mut labels = vec![BTreeSet::new()];
         let mut tree_edges = Vec::new();
         build_tree(a, 0, &mut labels, &mut tree_edges);
 
-        let sig: Vec<u32> = sig.iter().copied().collect();
+        let sig: Vec<L> = sig.iter().cloned().collect();
         let n = labels.len();
         let mut rel = vec![vec![BitSet::new(n); n]; sig.len()];
-        for &(x, m, y) in &tree_edges {
-            let i = sig.binary_search(&m).expect("A のモダリティは署名に含まれる");
-            rel[i][x].insert(y);
+        for (x, m, y) in &tree_edges {
+            let i = sig.binary_search(m).expect("A のモダリティは署名に含まれる");
+            rel[i][*x].insert(*y);
         }
         let mut model = Model { labels, sig, rel, tree_edges };
         model.close();
@@ -117,13 +121,13 @@ impl Model {
         self.labels.len()
     }
 
-    pub fn signature(&self) -> &[u32] {
+    pub fn signature(&self) -> &[L] {
         &self.sig
     }
 
     /// x R_m y か（m が署名にない場合は false）。
-    pub fn related(&self, m: u32, x: usize, y: usize) -> bool {
-        match self.sig.binary_search(&m) {
+    pub fn related(&self, m: &L, x: usize, y: usize) -> bool {
+        match self.sig.binary_search(m) {
             Ok(i) => self.rel[i][x].contains(y),
             Err(_) => false,
         }
@@ -135,7 +139,7 @@ impl Model {
     }
 
     /// 式 B が真になる点の集合。
-    pub fn truth_set(&self, b: &Spf) -> BitSet {
+    pub fn truth_set(&self, b: &Spf<L>) -> BitSet {
         let n = self.num_points();
         match b {
             Spf::Top => BitSet::full(n),
@@ -169,17 +173,17 @@ impl Model {
     }
 
     /// 点 x で B が真か。
-    pub fn satisfies(&self, x: usize, b: &Spf) -> bool {
+    pub fn satisfies(&self, x: usize, b: &Spf<L>) -> bool {
         self.truth_set(b).contains(x)
     }
 }
 
 /// 標準木 T[A] を `node` を根として作る。
-fn build_tree(
-    a: &Spf,
+fn build_tree<L: Letter>(
+    a: &Spf<L>,
     node: usize,
     labels: &mut Vec<BTreeSet<String>>,
-    edges: &mut Vec<(usize, u32, usize)>,
+    edges: &mut Vec<(usize, L, usize)>,
 ) {
     match a {
         Spf::Top => {}
@@ -193,13 +197,13 @@ fn build_tree(
         Spf::Dia(m, b) => {
             let child = labels.len();
             labels.push(BTreeSet::new());
-            edges.push((node, *m, child));
+            edges.push((node, m.clone(), child));
             build_tree(b, child, labels, edges);
         }
     }
 }
 
-impl fmt::Display for Model {
+impl<L: Letter> fmt::Display for Model<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "点（0 が根）:")?;
         for (x, lab) in self.labels.iter().enumerate() {
@@ -223,14 +227,14 @@ impl fmt::Display for Model {
 
 /// 判定結果。`model` は A の閉包モデルで、`holds == false` のときは反例。
 #[derive(Clone, Debug)]
-pub struct Decision {
-    pub sequent: Sequent,
+pub struct Decision<L = u32> {
+    pub sequent: Sequent<L>,
     pub holds: bool,
-    pub model: Model,
+    pub model: Model<L>,
 }
 
 /// A ⊢ B を判定する。
-pub fn decide(lhs: &Spf, rhs: &Spf) -> Decision {
+pub fn decide<L: Letter>(lhs: &Spf<L>, rhs: &Spf<L>) -> Decision<L> {
     let mut sig = lhs.modalities();
     sig.extend(rhs.modalities());
     let model = Model::canonical(lhs, &sig);
@@ -239,17 +243,17 @@ pub fn decide(lhs: &Spf, rhs: &Spf) -> Decision {
 }
 
 /// RC ⊢ A ⊢ B か。
-pub fn entails(lhs: &Spf, rhs: &Spf) -> bool {
+pub fn entails<L: Letter>(lhs: &Spf<L>, rhs: &Spf<L>) -> bool {
     decide(lhs, rhs).holds
 }
 
 /// A ≡ B（両方向に導出可能）か。
-pub fn equivalent(a: &Spf, b: &Spf) -> bool {
+pub fn equivalent<L: Letter>(a: &Spf<L>, b: &Spf<L>) -> bool {
     entails(a, b) && entails(b, a)
 }
 
 /// 一般の worm に対する A <_n B（GLP ⊢ B → ⟨n⟩A）を RC で判定する。
-pub fn worm_lt(n: u32, a: &Worm, b: &Worm) -> bool {
+pub fn worm_lt<L: Letter>(n: L, a: &Worm<L>, b: &Worm<L>) -> bool {
     entails(&Spf::from(b), &Spf::dia(n, Spf::from(a)))
 }
 

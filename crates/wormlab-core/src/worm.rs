@@ -21,30 +21,41 @@
 //! 例：o(⊤)=0, o(0)=1, o(1)=ω, o(0 1)=ω+1, o(1 0)=ω（1 0 ≡ 1）,
 //!     o(1 0 1)=ω·2, o(1 1)=ω², o(2)=ω^ω。
 
+use crate::letter::Letter;
 use crate::ordinal::Ordinal;
 use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
-/// worm（自然数の有限列）。
+/// worm（文字の有限列）。文字の型 `L` の既定は自然数 `u32`。
 ///
-/// 【Rust メモ】`struct Worm(Vec<u32>)` は「タプル構造体」。中身は
-/// `self.0` で取り出せる。ただの `Vec<u32>` に名前を付けて別の型に
-/// しておくと、うっかり普通のリストと混同するのを型検査が防いでくれる。
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize)]
-pub struct Worm(Vec<u32>);
+/// 【Rust メモ】`struct Worm<L = u32>(Vec<L>)` は「タプル構造体」で、
+/// 中身は `self.0` で取り出せる。`<L = u32>` は型引数の既定値で、
+/// 単に `Worm` と書けば `Worm<u32>`、順序数を文字にするなら `Worm<Veblen>`。
+#[derive(Clone, PartialEq, Eq, Hash, Debug, serde::Serialize)]
+pub struct Worm<L = u32>(Vec<L>);
 
-impl Worm {
+impl<L> Default for Worm<L> {
+    fn default() -> Self {
+        Worm(Vec::new())
+    }
+}
+
+// ----------------------------------------------------------------------
+// どんな文字型でも使える操作（大小比較しか使わない）
+// ----------------------------------------------------------------------
+
+impl<L: Letter> Worm<L> {
     /// 空の worm ⊤
     pub fn top() -> Self {
         Worm(Vec::new())
     }
 
-    pub fn new(letters: Vec<u32>) -> Self {
+    pub fn new(letters: Vec<L>) -> Self {
         Worm(letters)
     }
 
-    pub fn letters(&self) -> &[u32] {
+    pub fn letters(&self) -> &[L] {
         &self.0
     }
 
@@ -62,15 +73,58 @@ impl Worm {
     }
 
     /// 最小の文字（⊤ なら `None`）。
-    pub fn min_letter(&self) -> Option<u32> {
-        self.0.iter().copied().min()
+    pub fn min_letter(&self) -> Option<&L> {
+        self.0.iter().min()
     }
 
     /// 全文字が n 以上か（「n-worm」か）。⊤ は任意の n について真。
-    pub fn is_n_worm(&self, n: u32) -> bool {
-        self.0.iter().all(|&x| x >= n)
+    pub fn is_n_worm(&self, n: L) -> bool {
+        self.0.iter().all(|x| *x >= n)
     }
 
+    /// h_n(A)：文字がすべて n 以上であるような A の最長の先頭部分。
+    pub fn head(&self, n: L) -> Worm<L> {
+        Worm(self.0.iter().take_while(|x| **x >= n).cloned().collect())
+    }
+
+    /// r_n(A)：A = h_n(A) r_n(A) となる残りの部分。
+    pub fn rest(&self, n: L) -> Worm<L> {
+        Worm(self.0.iter().skip_while(|x| **x >= n).cloned().collect())
+    }
+
+    /// 連結 A B（式としては A の一番内側の ⊤ を B で置き換えたもの）。
+    pub fn concat(&self, other: &Worm<L>) -> Worm<L> {
+        let mut v = self.0.clone();
+        v.extend_from_slice(&other.0);
+        Worm(v)
+    }
+
+    /// 各文字を f で写した worm（例：自然数の worm を順序数の worm にする）。
+    pub fn map<M: Letter>(&self, f: impl Fn(&L) -> M) -> Worm<M> {
+        Worm(self.0.iter().map(f).collect())
+    }
+
+    /// 式としての表示 ⟨1⟩⟨0⟩⟨2⟩⊤。
+    pub fn to_formula(&self) -> String {
+        let mut s: String = self.0.iter().map(|n| format!("⟨{n}⟩")).collect();
+        s.push('⊤');
+        s
+    }
+
+    /// 一般の worm に対する A <_n B（GLP ⊢ B → ⟨n⟩A）。
+    ///
+    /// n 未満の文字を含んでいてもよい。内部では RC の判定器を使う
+    /// （worm は強正値式であり、RC は強正値式について GLP と一致する）。
+    pub fn lt_n(&self, other: &Worm<L>, n: L) -> bool {
+        crate::rc::worm_lt(n, self, other)
+    }
+}
+
+// ----------------------------------------------------------------------
+// 自然数の worm だけの操作（文字の足し算・引き算や ε0 未満の順序数を使うもの）
+// ----------------------------------------------------------------------
+
+impl Worm<u32> {
     /// 全文字に k を足す（A↑^k）。
     pub fn up(&self, k: u32) -> Worm {
         Worm(self.0.iter().map(|&x| x + k).collect())
@@ -83,30 +137,6 @@ impl Worm {
         } else {
             None
         }
-    }
-
-    /// h_n(A)：文字がすべて n 以上であるような A の最長の先頭部分。
-    pub fn head(&self, n: u32) -> Worm {
-        Worm(self.0.iter().copied().take_while(|&x| x >= n).collect())
-    }
-
-    /// r_n(A)：A = h_n(A) r_n(A) となる残りの部分。
-    pub fn rest(&self, n: u32) -> Worm {
-        Worm(self.0.iter().copied().skip_while(|&x| x >= n).collect())
-    }
-
-    /// 連結 A B（式としては A の一番内側の ⊤ を B で置き換えたもの）。
-    pub fn concat(&self, other: &Worm) -> Worm {
-        let mut v = self.0.clone();
-        v.extend_from_slice(&other.0);
-        Worm(v)
-    }
-
-    /// 式としての表示 ⟨1⟩⟨0⟩⟨2⟩⊤。
-    pub fn to_formula(&self) -> String {
-        let mut s: String = self.0.iter().map(|n| format!("⟨{n}⟩")).collect();
-        s.push('⊤');
-        s
     }
 
     // ------------------------------------------------------------------
@@ -170,14 +200,6 @@ impl Worm {
         let a = self.down(n)?; // 【Rust メモ】`?` は None なら即 return None
         let b = other.down(n)?;
         Some(a.cmp0(&b))
-    }
-
-    /// 一般の worm に対する A <_n B（GLP ⊢ B → ⟨n⟩A）。
-    ///
-    /// n 未満の文字を含んでいてもよい。内部では RC の判定器を使う
-    /// （worm は強正値式であり、RC は強正値式について GLP と一致する）。
-    pub fn lt_n(&self, other: &Worm, n: u32) -> bool {
-        crate::rc::worm_lt(n, self, other)
     }
 
     // ------------------------------------------------------------------
@@ -280,13 +302,12 @@ impl Iterator for Battle {
 // 文字列との相互変換
 // ----------------------------------------------------------------------
 
-impl fmt::Display for Worm {
+impl<L: Letter> fmt::Display for Worm<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.0.is_empty() {
             return write!(f, "⊤");
         }
-        let s: Vec<String> = self.0.iter().map(|n| n.to_string()).collect();
-        write!(f, "{}", s.join(" "))
+        write!(f, "{}", L::fmt_worm(&self.0))
     }
 }
 
@@ -302,33 +323,63 @@ impl fmt::Display for ParseWormError {
 
 impl std::error::Error for ParseWormError {}
 
-/// `"1 0 2"`, `"1,0,2"`, `"<1><0><2>T"`, `"⟨1⟩⟨0⟩⟨2⟩⊤"`, `"⊤"`, `""` などを受け付ける。
+/// 次のどれでも読める（⊤・T・空文字列は空の worm）：
+/// - 括弧：`"<1><0><2>T"`, `"⟨ω + 1⟩⟨0⟩⟨ε_0⟩⊤"`
+/// - カンマ区切り：`"1,0,2"`, `"ω+1, 0, ε_0"`（φ(2, 0) の中のカンマは区切りとみなさない）
+/// - 空白区切り（自然数のみ）：`"1 0 2"`
 ///
 /// 【Rust メモ】`FromStr` を実装すると `"1 0 2".parse::<Worm>()` と書ける。
 /// 失敗しうる処理は `Result<成功時の型, エラー型>` を返すのが Rust の流儀。
-impl FromStr for Worm {
+impl<L: Letter> FromStr for Worm<L> {
     type Err = ParseWormError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let cleaned: String = s
-            .chars()
-            .map(|c| match c {
-                '<' | '>' | '⟨' | '⟩' | ',' => ' ',
-                _ => c,
-            })
-            .collect();
-        let mut letters = Vec::new();
-        for tok in cleaned.split_whitespace() {
-            match tok {
-                "⊤" | "T" | "top" => continue,
-                _ => {
-                    let tok = tok.trim_end_matches(['⊤', 'T']);
-                    let n = tok
-                        .parse::<u32>()
-                        .map_err(|_| ParseWormError(s.to_string()))?;
-                    letters.push(n);
+        let err = || ParseWormError(s.to_string());
+        let is_top = |t: &str| matches!(t.trim(), "" | "⊤" | "T" | "top");
+        let mut tokens: Vec<String> = Vec::new();
+        if s.contains(['<', '⟨']) {
+            // 括弧の中身を取り出す。括弧の外は空白か ⊤ だけ許す
+            let mut cur: Option<String> = None;
+            let mut outside = String::new();
+            for c in s.chars() {
+                match (c, &mut cur) {
+                    ('<' | '⟨', None) => cur = Some(String::new()),
+                    ('>' | '⟩', Some(t)) => {
+                        tokens.push(std::mem::take(t));
+                        cur = None;
+                    }
+                    (_, Some(t)) => t.push(c),
+                    (_, None) => outside.push(c),
                 }
             }
+            if cur.is_some() || !outside.split_whitespace().all(is_top) {
+                return Err(err());
+            }
+        } else if s.contains(',') {
+            // 括弧の深さ 0 のカンマで区切る
+            let (mut depth, mut cur) = (0i32, String::new());
+            for c in s.chars() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    ',' if depth == 0 => {
+                        tokens.push(std::mem::take(&mut cur));
+                        continue;
+                    }
+                    _ => {}
+                }
+                cur.push(c);
+            }
+            tokens.push(cur);
+        } else if L::SPACE_SEPARATED {
+            tokens = s.split_whitespace().map(String::from).collect();
+        } else if !is_top(s) {
+            tokens.push(s.to_string());
+        }
+        let mut letters = Vec::new();
+        for t in tokens.iter().filter(|t| !is_top(t)) {
+            let t = t.trim().trim_end_matches(['⊤', 'T']);
+            letters.push(L::parse_letter(t).ok_or_else(err)?);
         }
         Ok(Worm(letters))
     }
@@ -391,6 +442,24 @@ mod tests {
         assert_eq!(show("2 0 1"), ["ω^ω", "ω", "1", "0", "0"]);
         assert_eq!(show("1 0 1"), ["ω·2", "1", "0", "0", "0"]);
         assert_eq!(show("0 2"), ["ω^ω + 1", "0", "0", "0", "0"]);
+    }
+
+    #[test]
+    fn ordinal_letters() {
+        use crate::veblen::Veblen;
+        // 括弧・カンマのどちらでも読める（φ(2, 0) の中のカンマは区切りではない）
+        let a: Worm<Veblen> = "⟨ω + 1⟩⟨0⟩⟨φ(2, 0)⟩⊤".parse().unwrap();
+        let b: Worm<Veblen> = "w+1, 0, phi(2,0)".parse().unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 3);
+        assert_eq!(a.to_string(), "⟨ω + 1⟩⟨0⟩⟨φ(2, 0)⟩");
+        assert_eq!(a.to_string().parse::<Worm<Veblen>>().unwrap(), a);
+        assert_eq!("<e_0>".parse::<Worm<Veblen>>().unwrap().len(), 1);
+        assert_eq!("⊤".parse::<Worm<Veblen>>().unwrap(), Worm::top());
+        assert!("<ω".parse::<Worm<Veblen>>().is_err());
+        // 自然数の worm を順序数の worm に写す
+        let c = w("1 0 2").map(|&n| Veblen::nat(n as u64));
+        assert_eq!(c.to_string(), "⟨1⟩⟨0⟩⟨2⟩");
     }
 
     #[test]
