@@ -16,7 +16,60 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt;
-use std::hash::Hash;
+use std::hash::{BuildHasherDefault, Hash, Hasher};
+
+/// 速いハッシュ関数（rustc の FxHash と同じ作り）。証明の判断（worm の組）を
+/// キーにする表で使う。標準の SipHash は安全だが遅く、証明器の時間の半分近くを
+/// 占めていた。ここでは悪意ある入力を気にする必要がないので、これで十分。
+#[derive(Default, Clone, Copy)]
+pub struct FxHasher {
+    hash: u64,
+}
+
+impl FxHasher {
+    #[inline]
+    fn add(&mut self, w: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ w).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+
+impl Hasher for FxHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for c in &mut chunks {
+            self.add(u64::from_le_bytes(c.try_into().unwrap()));
+        }
+        let rest = chunks.remainder();
+        if !rest.is_empty() {
+            let mut buf = [0u8; 8];
+            buf[..rest.len()].copy_from_slice(rest);
+            self.add(u64::from_le_bytes(buf));
+        }
+    }
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.add(i as u64)
+    }
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.add(i as u64)
+    }
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add(i)
+    }
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.add(i as u64)
+    }
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+}
+
+/// [`FxHasher`] を使う `HashMap` の型引数。`HashMap<K, V, FxBuild>` のように使う。
+pub type FxBuild = BuildHasherDefault<FxHasher>;
 
 /// 証明体系。
 pub trait Calculus {
@@ -54,13 +107,15 @@ pub struct Proof<J, R> {
 /// - `known` は「この判断はもう証明済み」という表で、証明器のメモ化に使う。
 pub struct Builder<J, R> {
     nodes: Vec<Node<J, R>>,
-    dedup: HashMap<(R, Vec<usize>, J), usize>,
-    known: HashMap<J, usize>,
+    dedup: HashMap<(R, Vec<usize>, J), usize, FxBuild>,
+    known: HashMap<J, usize, FxBuild>,
+    /// 各ノードを根とする証明を木に展開したときの大きさ（候補の比較に使う）
+    sizes: Vec<u128>,
 }
 
 impl<J: Clone + Eq + Hash, R: Clone + Eq + Hash> Default for Builder<J, R> {
     fn default() -> Self {
-        Builder { nodes: Vec::new(), dedup: HashMap::new(), known: HashMap::new() }
+        Builder { nodes: Vec::new(), dedup: HashMap::default(), known: HashMap::default(), sizes: Vec::new() }
     }
 }
 
@@ -71,21 +126,31 @@ impl<J: Clone + Eq + Hash, R: Clone + Eq + Hash> Builder<J, R> {
 
     /// ノードを追加してその番号を返す。
     pub fn add(&mut self, rule: R, premises: Vec<usize>, conclusion: J) -> usize {
-        let key = (rule, premises, conclusion);
-        if let Some(&id) = self.dedup.get(&key) {
-            return id;
+        use std::collections::hash_map::Entry;
+        // 【Rust メモ】entry は「探して、無ければその場で入れる」を 1 回のハッシュで行う。
+        match self.dedup.entry((rule, premises, conclusion)) {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(e) => {
+                let id = self.nodes.len();
+                let (rule, premises, conclusion) = e.key().clone();
+                let size = premises.iter().fold(1u128, |acc, &p| acc.saturating_add(self.sizes[p]));
+                self.sizes.push(size);
+                self.known.entry(conclusion.clone()).or_insert(id);
+                self.nodes.push(Node { rule, premises, conclusion });
+                e.insert(id);
+                id
+            }
         }
-        let id = self.nodes.len();
-        let (rule, premises, conclusion) = key.clone();
-        self.nodes.push(Node { rule, premises, conclusion: conclusion.clone() });
-        self.dedup.insert(key, id);
-        self.known.entry(conclusion).or_insert(id);
-        id
     }
 
     /// 判断 `j` がすでに証明済みならそのノード番号。
     pub fn lookup(&self, j: &J) -> Option<usize> {
         self.known.get(j).copied()
+    }
+
+    /// ノード `id` を根とする証明を木に展開したときのノード数（上限で飽和）。
+    pub fn tree_size(&self, id: usize) -> u128 {
+        self.sizes[id]
     }
 
     pub fn conclusion(&self, id: usize) -> &J {

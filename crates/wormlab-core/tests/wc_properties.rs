@@ -53,6 +53,20 @@ proptest! {
         }
     }
 
+    /// B が A の先頭を文字ごとに下げたものなら、A1 と Nec・A3 だけの証明（3|B|+1 ノード以下）
+    /// がある。証明器はそれより大きい証明を返さない（局所断片との比較が効いている）。
+    #[test]
+    fn never_worse_than_lowering(a in prop::collection::vec(0u32..5, 0..14), cut in 0usize..14,
+                                 drops in prop::collection::vec(0u32..3, 14)) {
+        let k = cut.min(a.len());
+        let b: Vec<u32> = a[..k].iter().zip(&drops).map(|(x, d)| x.saturating_sub(*d)).collect();
+        let (a, b) = (Worm::new(a), Worm::new(b));
+        let p = wc::prove(&a, &b).unwrap();
+        let c = wc::check(&p).map_err(|e| TestCaseError::fail(format!("{a} ⊢ {b}: {e}")))?;
+        prop_assert_eq!(c, &WSeq { lhs: a.clone(), rhs: b.clone() });
+        prop_assert!(p.tree_size() <= 3 * b.len() as u128 + 1, "{} ⊢ {}: {}", a, b, p.tree_size());
+    }
+
     #[test]
     fn wc_proves_worm_order(a in worm(), b in worm(), n in 0u32..3) {
         if a.lt_n(&b, n) {
