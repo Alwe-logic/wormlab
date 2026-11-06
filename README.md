@@ -50,6 +50,10 @@ cargo run -q -- bracket "((()))"              # 括弧記法：((())) = ⟨ω⟩
 cargo run -q -- bracketof "φ(2,0) + ε_0"      # 順序数 → 正規形の括弧語
 cargo run -q -- bbattle "(()())" 20           # 括弧語の battle（Γ0 版の worm battle）
 cargo run -q -- thm52 3                       # ATR₀ から独立な命題の出発点
+cargo run -q -- fs "ε_0" 5                    # 標準の基本列 ε_0[n] と、worm が作る列の比較
+cargo run -q -- hardy "ω^2" 10                # Hardy 関数 H_α(n)・急増加関数 f_α(n)
+cargo run -q -- blen "ω^2 + ω"                # worm battle と標準 battle の長さ
+cargo run --release -p wormlab-core --example battles   # battle の長さの比較表
 cargo run -q -- wclt 0 "<ω><ω>" "<ε_0>"       # 順序数の worm の WC 証明
 cargo doc --open                              # ドキュメントをブラウザで開く
 ```
@@ -69,5 +73,6 @@ worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が�
 - [x] 段階2-2/3: 文字の汎用化（Letter trait）、順序数を文字に持つ worm で RC・head/body・WC
 - [x] 段階2-4: 順序数を文字に持つ worm の順序数 o（超指数関数）・逆写像・Ω_ξ
 - [x] 段階2-5: 括弧記法（Beklemishev の autonomous worm）、正規形、基本列と battle
+- [x] 順序数の標準基本列 α[n]（Γ0 未満）、Hardy 階層・急増加関数、battle の長さの比較
 - [ ] 段階3: Web 可視化
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

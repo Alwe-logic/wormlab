@@ -14,6 +14,9 @@
 //!   wormlab bracketof "ε_0 + 1"      順序数を正規形の括弧語にする
 //!   wormlab bbattle "(())()" [上限]  括弧語の battle（基本列を繰り返す）
 //!   wormlab thm52 3                  Thm 52（ATR₀ から独立）の出発点 a'_m
+//!   wormlab fs "ε_0" [k]             標準の基本列 α[0..k] と、worm が作る列の比較
+//!   wormlab hardy "ω^2" 10           Hardy 関数 H_α(n) と急増加関数 f_α(n)
+//!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
 //!
 //! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
 
@@ -22,7 +25,12 @@ use std::cmp::Ordering;
 use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
+use wormlab_core::hierarchy::{self, Budget};
 use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc};
+
+fn parse_ordinal(s: &str) -> Result<Veblen, String> {
+    s.parse::<Veblen>().map_err(|e| e.to_string())
+}
 
 fn parse_bracket(s: &str) -> Result<Bracket, String> {
     s.parse::<Bracket>().map_err(|e| e.to_string())
@@ -362,6 +370,41 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("  証明できるどんな関数よりも速く増える：arXiv:2008.13445, Thm 52）");
             Ok(())
         }
+        [cmd, a, rest @ ..] if cmd == "fs" && rest.len() <= 1 => {
+            let x = parse_ordinal(a)?;
+            let k: u64 = match rest.first() {
+                Some(s) => s.parse().map_err(|_| format!("k が数値ではありません: {s}"))?,
+                None => 5,
+            };
+            if !x.is_limit() {
+                println!("{x} は極限順序数ではありません（後続なら α[n] は直前の数）");
+                return Ok(());
+            }
+            println!("{:>3}  {:<40} worm の基本列（正規形の worm から 1 ステップ）", "n", format!("{x}[n]（標準）"));
+            for n in 0..=k {
+                let std = x.fundamental(n).expect("極限").to_string();
+                let worm = hierarchy::worm_fundamental(&x, n as usize).map_or("-".to_string(), |y| y.to_string());
+                println!("{n:>3}  {:<40} {}", shorten(std, 40), shorten(worm, 60));
+            }
+            Ok(())
+        }
+        [cmd, a, n] if cmd == "hardy" => {
+            let x = parse_ordinal(a)?;
+            let n: u128 = n.parse().map_err(|_| format!("n が数値ではありません: {n}"))?;
+            let show = |v: Option<u128>| v.map_or("大きすぎて打ち切り（u128 を超えるか、計算が長すぎる）".to_string(), |v| v.to_string());
+            println!("H_{x}({n}) = {}", show(hierarchy::hardy(&x, n, Budget::default())));
+            println!("f_{x}({n}) = {}", show(hierarchy::fast_growing(&x, n, Budget::default())));
+            Ok(())
+        }
+        [cmd, a] if cmd == "blen" => {
+            let x = parse_ordinal(a)?;
+            let budget = Budget { max_steps: 10_000_000 };
+            let show = |v: Option<u64>| v.map_or("1000 万ステップで打ち切り".to_string(), |v| v.to_string());
+            println!("α = {x}");
+            println!("  worm battle（正規形の worm から）: {}", show(hierarchy::worm_battle_length_of(&x, budget)));
+            println!("  標準 battle（α ← α[k], k = 1, 2, …）: {}", show(hierarchy::ordinal_battle_length(&x, 1, budget)));
+            Ok(())
+        }
         _ => Err(USAGE.to_string()),
     }
 }
@@ -380,6 +423,9 @@ const USAGE: &str = "使い方:
   wormlab bracketof <順序数>       順序数を正規形の括弧語にする
   wormlab bbattle <括弧語> [上限]  括弧語の battle
   wormlab thm52  <m>               ATR₀ から独立な命題（Thm 52）の出発点 a'_m
+  wormlab fs     <順序数> [k]      標準の基本列 α[0..k] と worm が作る列
+  wormlab hardy  <順序数> <n>      Hardy 関数 H_α(n) と急増加関数 f_α(n)
+  wormlab blen   <順序数>          worm battle と標準 battle の長さ
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
   文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（ord・cmp・lt・wc・wclt で使える）
 順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）

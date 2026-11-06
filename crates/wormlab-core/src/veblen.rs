@@ -245,6 +245,61 @@ impl Veblen {
         }
     }
 
+    // ------------------------------------------------------------------
+    // 基本列
+    // ------------------------------------------------------------------
+
+    /// α = β + φ(a, b)·c（最後の項）と分けて (β, a, b, c) を返す。α = 0 なら `None`。
+    pub fn split_last(&self) -> Option<(Veblen, Veblen, Veblen, u64)> {
+        let mut terms = self.terms.clone();
+        let (p, c) = terms.pop()?;
+        Some((Veblen { terms }, p.a, p.b, c))
+    }
+
+    /// 後続順序数 β + 1 なら β。そうでなければ `None`。
+    pub fn pred(&self) -> Option<Veblen> {
+        if !self.is_successor() {
+            return None;
+        }
+        let mut terms = self.terms.clone();
+        let last = terms.last_mut().expect("後続順序数は空でない");
+        if last.1 > 1 {
+            last.1 -= 1;
+        } else {
+            terms.pop();
+        }
+        Some(Veblen { terms })
+    }
+
+    /// 基本列 α[n]（標準的な定義）。α = 0 なら `None`、後続順序数なら直前の数。
+    ///
+    /// 極限順序数 α = β + φ(a, b) では α[n] = β + φ(a, b)[n] とし、主項は
+    /// ```text
+    /// ω^{b+1}[n]        = ω^b · n
+    /// ω^λ[n]            = ω^{λ[n]}                         （λ は極限）
+    /// φ(a, λ)[n]        = φ(a, λ[n])                       （a ≥ 1、λ は極限）
+    /// φ(a+1, 0)[n]      = φ(a, ·)^n (0)                    （n 回合成）
+    /// φ(a+1, b+1)[n]    = φ(a, ·)^n (φ(a+1, b) + 1)
+    /// φ(λ, 0)[n]        = φ(λ[n], 0)                       （λ は極限）
+    /// φ(λ, b+1)[n]      = φ(λ[n], φ(λ, b) + 1)
+    /// ```
+    /// 例：ω[n] = n、ε_0[n] = ω^ω^…（n 段）、φ(2, 0)[n] = ε_ε_…（n 段）。
+    /// どの n でも α[n] < α で、n について増加し、上限が α になる。
+    pub fn fundamental(&self, n: u64) -> Option<Veblen> {
+        if self.is_zero() {
+            return None;
+        }
+        if self.is_successor() {
+            return self.pred();
+        }
+        let mut terms = self.terms.clone();
+        let (p, c) = terms.pop().expect("空でない");
+        if c > 1 {
+            terms.push((p.clone(), c - 1));
+        }
+        Some(Veblen { terms } + fundamental_phi(&p, n))
+    }
+
     /// ε0 未満なら Cantor 標準形の [`Ordinal`] に変換する。
     pub fn to_cnf(&self) -> Option<Ordinal> {
         let mut out = Ordinal::zero();
@@ -255,6 +310,34 @@ impl Veblen {
             out = out + Ordinal::omega_pow_mul(p.b.to_cnf()?, *c);
         }
         Some(out)
+    }
+}
+
+/// 極限の主項 φ(a, b)（1 = φ(0, 0) 以外）の基本列。
+fn fundamental_phi(p: &Phi, n: u64) -> Veblen {
+    let (a, b) = (&p.a, &p.b);
+    if a.is_zero() {
+        // ω^b（b ≥ 1）
+        return match b.pred() {
+            Some(bp) => Veblen::omega_pow(bp).mul_nat(n),
+            None => Veblen::omega_pow(b.fundamental(n).expect("b は極限")),
+        };
+    }
+    if b.is_limit() {
+        return Veblen::phi(a.clone(), b.fundamental(n).expect("b は極限"));
+    }
+    // b は 0 か後続：φ(a, b) は「φ(a, b−1) の次の不動点」
+    let start = match b.pred() {
+        None => Veblen::zero(),
+        Some(bp) => Veblen::phi(a.clone(), bp) + Veblen::one(),
+    };
+    match a.pred() {
+        Some(ap) => (0..n).fold(start, |x, _| Veblen::phi(ap.clone(), x)),
+        None => {
+            // a は極限
+            let an = a.fundamental(n).expect("a は極限");
+            Veblen::phi(an, start)
+        }
     }
 }
 
