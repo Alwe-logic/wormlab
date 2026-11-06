@@ -33,6 +33,13 @@ proptest! {
         prop_assert_eq!(headbody::lt(n, &a, &b), Some(a.lt_n(&b, n)), "{} <_{} {}", a, n, b);
     }
 
+    /// 構文的判定（Lemma 4.5 + Thm 3.17）と RC（モデル）が一致する
+    #[test]
+    fn syntactic_decision_matches_rc(a in worm(), b in worm()) {
+        let holds = entails(&Spf::from(&a), &Spf::from(&b));
+        prop_assert_eq!(wc::decide(&a, &b), holds, "{} ⊢ {}", a, b);
+    }
+
     #[test]
     fn wc_proves_exactly_rc_theorems(a in worm(), b in worm()) {
         let holds = entails(&Spf::from(&a), &Spf::from(&b));

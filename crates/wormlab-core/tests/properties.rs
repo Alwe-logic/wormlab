@@ -60,6 +60,18 @@ proptest! {
         prop_assert_eq!((x.clone() + y.clone()) + z.clone(), x + (y + z));
     }
 
+    /// Ω_{n+1}(A) = ℓ(Ω_n(A))（Fernández-Duque & Joosten II, Thm 6.5）
+    #[test]
+    fn pi_ordinals_last_exponent(a in worm(), n in 0u32..4) {
+        prop_assert_eq!(a.pi_ordinal(n + 1), a.pi_ordinal(n).last_exponent(), "A = {}, n = {}", a, n);
+    }
+
+    /// Ω_0 = o
+    #[test]
+    fn pi_ordinal_zero_is_o(a in worm()) {
+        prop_assert_eq!(a.pi_ordinal(0), a.ordinal());
+    }
+
     /// 表示 → パースで元に戻る
     #[test]
     fn display_parse_roundtrip(a in worm()) {

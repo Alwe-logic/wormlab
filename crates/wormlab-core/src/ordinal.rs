@@ -94,6 +94,11 @@ impl Ordinal {
         &self.terms
     }
 
+    /// ℓ(α)：CNF の最後の指数（α = β + ω^{ℓα}）。ℓ(0) = 0。
+    pub fn last_exponent(&self) -> Ordinal {
+        self.terms.last().map(|(e, _)| e.clone()).unwrap_or_default()
+    }
+
     /// 1 + α（α が有限なら α+1、無限なら α そのもの）
     pub fn one_plus(&self) -> Ordinal {
         Ordinal::nat(1) + self.clone()
@@ -184,6 +189,13 @@ impl Ordinal {
     }
 }
 
+/// JSON などでは "ω^ω + 1" のような文字列として書き出す。
+impl serde::Serialize for Ordinal {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +237,13 @@ mod tests {
         assert_eq!(x.to_string(), "ω^(ω + 1) + ω^ω + ω + 3");
         assert_eq!((w() + w()).to_string(), "ω·2");
         assert_eq!(Ordinal::zero().to_string(), "0");
+    }
+
+    #[test]
+    fn last_exponent() {
+        let x = Ordinal::omega_pow(w()) + w() + Ordinal::nat(3);
+        assert_eq!(x.last_exponent(), Ordinal::zero());
+        assert_eq!((Ordinal::omega_pow(w()) + w()).last_exponent(), Ordinal::nat(1));
+        assert_eq!(Ordinal::zero().last_exponent(), Ordinal::zero());
     }
 }

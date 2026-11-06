@@ -181,6 +181,27 @@ impl Worm {
     }
 
     // ------------------------------------------------------------------
+    // Π 順序数（n-順序型）
+    // ------------------------------------------------------------------
+
+    /// Ω_n(A) = o(n↓h_n(A))：A の n-順序型。
+    ///
+    /// h_n(A) は文字が n 以上の最長の先頭部分。Ω_0 = o。A を理論とみたとき、
+    /// 列 (Ω_0(A), Ω_1(A), …) が Π_{n+1} 順序数の列（Turing–Taylor 展開）に当たる。
+    /// 出典：Fernández-Duque & Joosten, "Well-orders in the transfinite Japaridze
+    /// algebra" I (Cor. 4.16), II (Lemma 6.2)。
+    ///
+    /// 性質：Ω_{n+1}(A) = ℓ(Ω_n(A))（II, Thm 6.5。ℓ は CNF の最後の指数）。
+    pub fn pi_ordinal(&self, n: u32) -> Ordinal {
+        self.head(n).down(n).expect("h_n(A) の文字は n 以上").ordinal()
+    }
+
+    /// (Ω_0(A), …, Ω_k(A))。k = 最大の文字 + 1 にすると、最後が 0 になるところまで出る。
+    pub fn pi_ordinals(&self, k: u32) -> Vec<Ordinal> {
+        (0..=k).map(|n| self.pi_ordinal(n)).collect()
+    }
+
+    // ------------------------------------------------------------------
     // Worm battle
     // ------------------------------------------------------------------
 
@@ -359,6 +380,17 @@ mod tests {
         assert_eq!(a.head(2), w("2 3"));
         assert_eq!(a.rest(2), w("1 4 0 2"));
         assert_eq!(a.head(1).concat(&a.rest(1)), a);
+    }
+
+    #[test]
+    fn pi_ordinals() {
+        let show = |s: &str| -> Vec<String> {
+            w(s).pi_ordinals(4).iter().map(|x| x.to_string()).collect()
+        };
+        assert_eq!(show("3"), ["ω^ω^ω", "ω^ω", "ω", "1", "0"]);
+        assert_eq!(show("2 0 1"), ["ω^ω", "ω", "1", "0", "0"]);
+        assert_eq!(show("1 0 1"), ["ω·2", "1", "0", "0", "0"]);
+        assert_eq!(show("0 2"), ["ω^ω + 1", "0", "0", "0", "0"]);
     }
 
     #[test]

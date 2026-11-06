@@ -335,10 +335,60 @@ impl Prover {
     }
 }
 
-/// A ⊢ B の WC 証明を作る。RC で成り立たなければ `Err`。
+/// worm シーケント A ⊢ B の構文的な判定器（RC のモデルを使わない）。
+///
+/// `prove` と同じ分解をたどり、真偽だけを返す：
+/// - B = ⊤ なら真。
+/// - B = αB₀ とし、A = hA rA, B₀ = hB rB（h は文字が α 以上の最長の先頭部分）。
+///   - rA, rB がともに空なら、head/body 比較（Thm 3.17）で B₀ ◁ A か。
+///   - そうでなければ hA ⊢ αhB かつ A ⊢ rB（Lemma 4.5 の分解）。
+///
+/// 現れる部分問題は「A, B の連続部分列」と「文字 + 連続部分列」の組に限られ、
+/// メモ化しているので多項式時間で終わる（`algorithms.md` 参照）。
+/// 正しさは Lemma 4.5 と Thm 3.17 に依拠する。テストでは RC と突き合わせている。
+#[derive(Default)]
+pub struct Decider {
+    hb: HeadBody,
+    memo: std::collections::HashMap<(Vec<u32>, Vec<u32>), bool>,
+}
+
+impl Decider {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A ⊢ B か。
+    pub fn decide(&mut self, a: &[u32], b: &[u32]) -> bool {
+        let Some((&alpha, b0)) = b.split_first() else {
+            return true;
+        };
+        let key = (a.to_vec(), b.to_vec());
+        if let Some(&ans) = self.memo.get(&key) {
+            return ans;
+        }
+        let ka = a.iter().position(|&x| x < alpha).unwrap_or(a.len());
+        let kb = b0.iter().position(|&x| x < alpha).unwrap_or(b0.len());
+        let (h_a, r_a) = a.split_at(ka);
+        let (h_b, r_b) = b0.split_at(kb);
+        let ans = if r_a.is_empty() && r_b.is_empty() {
+            self.hb.lt(b0, a)
+        } else {
+            self.decide(h_a, &cons(alpha, h_b)) && self.decide(a, r_b)
+        };
+        self.memo.insert(key, ans);
+        ans
+    }
+}
+
+/// WC（＝ RC ＝ GLP）で worm シーケント A ⊢ B が成り立つか（構文的判定）。
+pub fn decide(a: &Worm, b: &Worm) -> bool {
+    Decider::new().decide(a.letters(), b.letters())
+}
+
+/// A ⊢ B の WC 証明を作る。成り立たなければ `Err`。
 pub fn prove(a: &Worm, b: &Worm) -> Result<WcProof, String> {
-    if !rc_holds(a.letters(), b.letters()) {
-        return Err(format!("RC ⊬ {a} ⊢ {b}（したがって WC でも証明できない）"));
+    if !decide(a, b) {
+        return Err(format!("{a} ⊢ {b} は成り立たない（WC でも RC でも証明できない）"));
     }
     let mut p = Prover::new();
     let root = p.prove(a.letters(), b.letters());

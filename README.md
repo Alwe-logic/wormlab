@@ -33,8 +33,9 @@ cargo build -p wormlab-core --target wasm32-unknown-unknown
 
 ```sh
 cargo test                                   # すべてのテストを実行
-cargo run -q -- ord "2 0 1 1"                 # 順序数と標準形
-cargo run -q -- cmp "1 1" "1 0 1 0 1"         # <_0 で比較
+cargo run -q -- ord "2 0 1 1"                 # 順序数・標準形・Π 順序数
+cargo run -q -- cmp "1 1" "1 0 1 0 1"         # <_0 で比較（3 つの方法で確認）
+cargo run -q -- table "1 1" "2" "3" > t.csv   # 複数の worm を CSV に
 cargo run -q -- battle "1 1" 20               # worm battle
 cargo run -q -- rc "<2>p |- <0><1>p"          # RC で判定（偽なら反例モデル）
 cargo run -q -- lt 1 "0 2" "1"                # 一般の worm で A <_n B か
@@ -54,7 +55,7 @@ worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が�
 - [x] P1a: 強正値式・シーケントのパーサ、RC の判定（標準木＋閉包）と反例モデル
 - [x] 段階1-1: worm の head/body 比較（Worms & spiders, Thm 3.17）
 - [x] 段階1-2/3: Worm Calculus の証明 DAG・検査器・証明器、証明サイズの実験
-- [ ] 段階1-4/5: Π⁰ₙ₊₁ 順序数、CSV/JSON 出力の整備
+- [x] 段階1-4/5: 構文的判定器、Π 順序数（Ω_n）、CSV/JSON 出力
 - [ ] 段階2: ε0 を超える worm（Veblen 表記、文字の汎用化）
 - [ ] 段階3: Web 可視化
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

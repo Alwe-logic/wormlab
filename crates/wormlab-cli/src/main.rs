@@ -1,15 +1,18 @@
 //! wormlab コマンドラインツール
 //!
 //! 使い方：
-//!   wormlab ord    "1 0 2"          worm の順序数と標準形を表示
-//!   wormlab cmp    "1 1" "2"        2 つの worm を <_0 で比較
+//!   wormlab ord    "1 0 2"          worm の順序数・標準形・Π 順序数を表示（--json 可）
+//!   wormlab table  "1 0" "2" …      複数の worm を CSV で（引数がなければ標準入力から 1 行 1 worm）
+//!   wormlab cmp    "1 1" "2"        2 つの worm を <_0 で比較（--json 可）
 //!   wormlab battle "1 1 1" [上限]    worm battle を実行
 //!   wormlab rc     "<2>p |- <0><1>p" RC で判定（偽なら反例モデル）
 //!   wormlab lt     1 "0 2" "1"       一般の worm で A <_n B か
 //!   wormlab wc     "1 1 |- 0 1 0 1"  worm シーケントの WC 証明（--json で JSON）
 //!   wormlab wclt   0 "1 1" "2"       A <_n B（B ⊢ nA）の WC 証明
 
+use serde_json::json;
 use std::cmp::Ordering;
+use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
 use wormlab_core::{Sequent, Worm, headbody, rc};
@@ -39,10 +42,47 @@ fn run(args: &[String]) -> Result<(), String> {
     match args {
         [cmd, a] if cmd == "ord" => {
             let w = parse(a)?;
-            println!("worm      : {w}");
-            println!("formula   : {}", w.to_formula());
-            println!("o(A)      : {}", w.ordinal());
-            println!("normal    : {}", w.normal_form());
+            let k = w.letters().iter().max().map_or(0, |m| m + 1);
+            let pis = w.pi_ordinals(k);
+            if json {
+                let v = json!({
+                    "worm": w,
+                    "formula": w.to_formula(),
+                    "ordinal": w.ordinal(),
+                    "normal_form": w.normal_form(),
+                    "pi_ordinals": pis,
+                });
+                println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+            } else {
+                println!("worm      : {w}");
+                println!("formula   : {}", w.to_formula());
+                println!("o(A)      : {}", w.ordinal());
+                println!("normal    : {}", w.normal_form());
+                let shown: Vec<String> = pis.iter().map(|x| x.to_string()).collect();
+                println!("Π 順序数  : (Ω_0, …, Ω_{k}) = ({})", shown.join(", "));
+            }
+            Ok(())
+        }
+        [cmd, rest @ ..] if cmd == "table" => {
+            // 引数がなければ標準入力から 1 行 1 worm で読む
+            let inputs: Vec<String> = if rest.is_empty() {
+                std::io::stdin()
+                    .lock()
+                    .lines()
+                    .map_while(Result::ok)
+                    .filter(|l| !l.trim().is_empty())
+                    .collect()
+            } else {
+                rest.to_vec()
+            };
+            let worms = inputs.iter().map(|s| parse(s)).collect::<Result<Vec<_>, _>>()?;
+            let k = worms.iter().flat_map(|w| w.letters().iter().copied()).max().map_or(0, |m| m + 1);
+            let pi_cols: Vec<String> = (0..=k).map(|n| format!("pi{n}")).collect();
+            println!("worm,ordinal,normal_form,{}", pi_cols.join(","));
+            for w in &worms {
+                let pis: Vec<String> = w.pi_ordinals(k).iter().map(|x| x.to_string()).collect();
+                println!("{w},{},{},{}", w.ordinal(), w.normal_form(), pis.join(","));
+            }
             Ok(())
         }
         [cmd, a, b] if cmd == "cmp" => {
@@ -52,15 +92,24 @@ fn run(args: &[String]) -> Result<(), String> {
                 Ordering::Equal => "≡",
                 Ordering::Greater => ">_0",
             };
-            println!("{x}  {rel}  {y}");
-            println!("  o = {}  vs  {}", x.ordinal(), y.ordinal());
             // 3 つの独立な方法で確認
             let by_rc = (x.lt_n(&y, 0), y.lt_n(&x, 0));
             let mut hb = headbody::HeadBody::new();
             let by_hb = (hb.lt(x.letters(), y.letters()), hb.lt(y.letters(), x.letters()));
             let by_o = (x.cmp0(&y) == Ordering::Less, y.cmp0(&x) == Ordering::Less);
             let agree = by_rc == by_o && by_hb == by_o;
-            println!("  順序数 / RC / head-body の判定: {}", if agree { "一致" } else { "不一致（バグです）" });
+            if json {
+                let v = json!({
+                    "a": x, "b": y, "relation": rel,
+                    "ordinal_a": x.ordinal(), "ordinal_b": y.ordinal(),
+                    "methods_agree": agree,
+                });
+                println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+            } else {
+                println!("{x}  {rel}  {y}");
+                println!("  o = {}  vs  {}", x.ordinal(), y.ordinal());
+                println!("  順序数 / RC / head-body の判定: {}", if agree { "一致" } else { "不一致（バグです）" });
+            }
             Ok(())
         }
         [cmd, a, rest @ ..] if cmd == "battle" && rest.len() <= 1 => {
@@ -121,8 +170,9 @@ fn run(args: &[String]) -> Result<(), String> {
 }
 
 const USAGE: &str = "使い方:
-  wormlab ord    <worm>            順序数と標準形
-  wormlab cmp    <worm> <worm>     <_0 で比較
+  wormlab ord    <worm>            順序数・標準形・Π 順序数（--json 可）
+  wormlab table  [<worm> …]        複数の worm を CSV で（引数なしなら標準入力から）
+  wormlab cmp    <worm> <worm>     <_0 で比較（--json 可）
   wormlab battle <worm> [上限]     worm battle を実行
   wormlab rc     \"A |- B\"          RC で判定（偽なら反例モデル）
   wormlab lt     <n> <worm> <worm> 一般の worm で A <_n B か
