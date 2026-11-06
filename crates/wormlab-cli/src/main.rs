@@ -87,8 +87,9 @@ fn show_proof<L: Letter>(p: &WcProof<L>, json: bool) -> Result<(), String> {
 
 /// RC の判定と導出（モダリティは自然数でも順序数でもよい）。
 fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<(), String> {
-    let d = rc::decide(&seq.lhs, &seq.rhs);
-    if !d.holds {
+    if !rc::entails(&seq.lhs, &seq.rhs) {
+        // 反例を見せるときだけ閉包モデルを作る
+        let d = rc::decide(&seq.lhs, &seq.rhs);
         println!("RC ⊬ {}", d.sequent);
         println!("反例：左辺の閉包モデルの根 0 で右辺が偽");
         print!("{}", d.model);
@@ -103,7 +104,7 @@ fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<()
     if show_proof {
         print!("{p}");
     }
-    println!("RC で証明: {}", d.sequent);
+    println!("RC で証明: {seq}");
     println!(
         "  導出：検査済み、DAG {} ノード / 木に展開すると {} ノード / 高さ {}（書き足した事実 {} 個 / 飽和で得た事実 {} 個）",
         p.dag_size(), p.tree_size(), p.height(), st.facts_used, st.facts_total

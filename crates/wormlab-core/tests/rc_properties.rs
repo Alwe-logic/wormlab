@@ -6,7 +6,7 @@
 
 use proptest::prelude::*;
 use std::cmp::Ordering;
-use wormlab_core::rc::{entails, equivalent, Model};
+use wormlab_core::rc::{decide, entails, equivalent, Model};
 use wormlab_core::{Spf, Worm};
 
 /// 変数 p, q とモダリティ 0〜2 からなるランダムな強正値式
@@ -20,6 +20,17 @@ fn spf() -> impl Strategy<Value = Spf> {
         prop_oneof![
             (inner.clone(), inner.clone()).prop_map(|(a, b)| Spf::and(a, b)),
             (0u32..3, inner).prop_map(|(n, a)| Spf::dia(n, a)),
+        ]
+    })
+}
+
+/// 少し大きめ・モダリティ 0〜4 の式（2 つの判定法の突き合わせ用）
+fn spf_big() -> impl Strategy<Value = Spf> {
+    let leaf = prop_oneof![Just(Spf::Top), Just(Spf::var("p")), Just(Spf::var("q"))];
+    leaf.prop_recursive(6, 40, 2, |inner| {
+        prop_oneof![
+            (inner.clone(), inner.clone()).prop_map(|(a, b)| Spf::and(a, b)),
+            (0u32..5, inner).prop_map(|(n, a)| Spf::dia(n, a)),
         ]
     })
 }
@@ -82,6 +93,22 @@ proptest! {
             for x in ta.iter() {
                 prop_assert!(tb.contains(x), "{} ⊢ {} だが、{} のモデルの点 {} で破れる", a, b, c, x);
             }
+        }
+    }
+
+    // ---- 2 つの判定法（閉包モデルと局所規則）が一致 ----
+
+    #[test]
+    fn local_rules_match_closure(a in spf_big(), b in spf_big()) {
+        prop_assert_eq!(decide(&a, &b).holds, entails(&a, &b), "{} ⊢ {}", a, b);
+    }
+
+    #[test]
+    fn local_rules_match_closure_on_weakenings(a in spf_big(), n in 0u32..5) {
+        // 右辺を左辺の一部から作る（真の例を増やす）
+        let parts = [a.clone(), Spf::dia(n, a.clone()), Spf::and(a.clone(), Spf::dia(n, Spf::Top))];
+        for b in parts {
+            prop_assert_eq!(decide(&a, &b).holds, entails(&a, &b), "{} ⊢ {}", a, b);
         }
     }
 

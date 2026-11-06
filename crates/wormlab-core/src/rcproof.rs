@@ -18,14 +18,16 @@
 //!
 //! # 導出の作り方（algorithms.md §1b の構成）
 //! 1. A を構文木として見る（各 ⟨k⟩ の位置が 1 つのノード、根が A 全体）。
-//! 2. 目標の集合 T* = Sub(B) ∪ {⟨m⟩β : β ∈ Sub(B), m は B のモダリティ} について、
-//!    各ノード x で成り立つ ⟨m⟩β を、次の 2 つの局所規則の最小不動点として求める：
+//! 2. B の部分式 ⟨m⟩β ∈ Sub(B) について、各ノード x で成り立つものを、次の 2 つの
+//!    局所規則の最小不動点として求める（[`crate::rc`] の判定法 2 と同じ計算。O(|A|·|B|)）：
 //!    - 辺：木の辺 x →k y（k ≥ m）で、y で β か ⟨m⟩β が成り立てば x で ⟨m⟩β
 //!      （導出は Nec・Mono・4）
 //!    - 押し下げ：木の辺 t →k x（k > m）で、t で ⟨m⟩β が成り立てば x でも ⟨m⟩β
 //!      （導出は t での J）
 //!
 //!    ∧ は両方成り立てば成り立つ。変数は A に書いてあるものだけ。
+//!    ⟨m⟩β を結論とする規則の前提は ⟨m⟩β と β だけなので、目標は Sub(B) で足りる。
+//!    作業リストを先着順で回し、各事実を最初に得た規則を理由として残す。
 //! 3. 根で B が成り立たなければ導出は無い（閉包モデルの判定と一致することをテストで確認）。
 //! 4. 成り立つなら、B に必要な事実だけを、求めた順に 1 つずつ A のノードに「∧ ⟨m⟩β」として
 //!    書き足していく：A ⊢ A¹ ⊢ A² ⊢ … ⊢ A*。各ステップは局所的な導出を Nec と ∧ の
@@ -35,6 +37,7 @@
 
 use crate::letter::Letter;
 use crate::proof::{self, Builder, Calculus, Proof};
+use crate::rc::{self, ATree, Facts, SubDag, SubNode, Why};
 use crate::spf::Spf;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -158,51 +161,22 @@ struct TNode<L> {
     extra: Vec<Spf<L>>,
 }
 
-/// 事実 (x, ⟨m⟩β) がどの規則で得られたか。
-#[derive(Clone)]
-enum Why<L> {
-    /// 辺 x →k y。`via_box` なら y で ⟨m⟩β、そうでなければ y で β から。
-    Edge { child: usize, k: L, via_box: bool },
-    /// 辺 t →k x での押し下げ。
-    Push { parent: usize, k: L },
-}
-
-/// 飽和の結果：事実を得た順と、それぞれの理由。
-type Saturation<L> = (Vec<(usize, Spf<L>)>, HashMap<(usize, Spf<L>), Why<L>>);
-
 /// 左に入れ子にした連言 ((l1 ∧ l2) ∧ l3) …。空なら ⊤。
 fn conj<L: Letter>(leaves: Vec<Spf<L>>) -> Spf<L> {
     leaves.into_iter().reduce(Spf::and).unwrap_or(Spf::Top)
-}
-
-/// B の部分式すべて（重複なし）。
-fn subformulas<L: Letter>(b: &Spf<L>, out: &mut Vec<Spf<L>>, seen: &mut HashSet<Spf<L>>) {
-    if seen.insert(b.clone()) {
-        out.push(b.clone());
-    }
-    match b {
-        Spf::And(x, y) => {
-            subformulas(x, out, seen);
-            subformulas(y, out, seen);
-        }
-        Spf::Dia(_, x) => subformulas(x, out, seen),
-        _ => {}
-    }
 }
 
 /// 導出を組み立てる道具。
 pub struct Deriver<L = u32> {
     b: Builder<RSeq<L>, RcRule>,
     nodes: Vec<TNode<L>>,
-    facts: Vec<HashSet<Spf<L>>>,
 }
 
 impl<L: Letter> Deriver<L> {
     fn new(lhs: &Spf<L>) -> Self {
-        let mut d = Deriver { b: Builder::new(), nodes: Vec::new(), facts: Vec::new() };
+        let mut d = Deriver { b: Builder::new(), nodes: Vec::new() };
         d.nodes.push(TNode { vars: vec![], children: vec![], parent: None, extra: vec![] });
         d.build(lhs, 0);
-        d.facts = vec![HashSet::new(); d.nodes.len()];
         d
     }
 
@@ -234,98 +208,43 @@ impl<L: Letter> Deriver<L> {
 
     // ---------------- 事実の飽和（どの事実が成り立つか） ----------------
 
-    fn holds(&self, x: usize, t: &Spf<L>) -> bool {
-        match t {
-            Spf::Top => true,
-            Spf::Var(p) => self.nodes[x].vars.contains(p),
-            Spf::And(a, b) => self.holds(x, a) && self.holds(x, b),
-            Spf::Dia(..) => self.facts[x].contains(t),
-        }
+    /// 局所規則の最小不動点（[`rc`] の判定法 2）を、理由つきで求める。
+    fn saturate(&self, rhs: &Spf<L>) -> (SubDag<L>, Facts) {
+        let t = ATree {
+            vars: self.nodes.iter().map(|n| n.vars.clone()).collect(),
+            kids: self.nodes.iter().map(|n| n.children.clone()).collect(),
+            parent: self.nodes.iter().map(|n| n.parent.clone()).collect(),
+        };
+        let d = SubDag::new(rhs);
+        let f = rc::saturate(&t, &d, true);
+        (d, f)
     }
 
-    /// 局所規則の最小不動点を求め、事実を得た順と理由を返す。
-    fn saturate(&mut self, rhs: &Spf<L>) -> Saturation<L> {
-        let (mut subs, mut seen) = (Vec::new(), HashSet::new());
-        subformulas(rhs, &mut subs, &mut seen);
-        let mods = rhs.modalities();
-        let mut targets: Vec<(L, Spf<L>)> = Vec::new(); // (m, β) で ⟨m⟩β
-        let mut tseen = HashSet::new();
-        for beta in &subs {
-            for m in &mods {
-                let t = Spf::dia(m.clone(), beta.clone());
-                if tseen.insert(t) {
-                    targets.push((m.clone(), beta.clone()));
-                }
+    /// (x, 部分式 i) を導くのに必要な ⟨m⟩β の事実を `need` に集める。
+    fn collect_needed(&self, d: &SubDag<L>, f: &Facts, x: usize, i: usize, need: &mut HashSet<(usize, usize)>) {
+        match &d.node[i] {
+            SubNode::Top | SubNode::Var(_) => {}
+            SubNode::And(a, b) => {
+                self.collect_needed(d, f, x, *a, need);
+                self.collect_needed(d, f, x, *b, need);
             }
-        }
-        let (mut order, mut why) = (Vec::new(), HashMap::new());
-        loop {
-            let mut changed = false;
-            for x in 0..self.nodes.len() {
-                for (m, beta) in &targets {
-                    let t = Spf::dia(m.clone(), beta.clone());
-                    if self.facts[x].contains(&t) {
-                        continue;
-                    }
-                    let mut reason = None;
-                    for (k, y) in &self.nodes[x].children {
-                        if k >= m {
-                            if self.holds(*y, beta) {
-                                reason = Some(Why::Edge { child: *y, k: k.clone(), via_box: false });
-                                break;
-                            }
-                            if self.facts[*y].contains(&t) {
-                                reason = Some(Why::Edge { child: *y, k: k.clone(), via_box: true });
-                                break;
-                            }
-                        }
-                    }
-                    if reason.is_none()
-                        && let Some((p, k)) = &self.nodes[x].parent
-                        && k > m
-                        && self.facts[*p].contains(&t)
-                    {
-                        reason = Some(Why::Push { parent: *p, k: k.clone() });
-                    }
-                    if let Some(r) = reason {
-                        self.facts[x].insert(t.clone());
-                        why.insert((x, t.clone()), r);
-                        order.push((x, t));
-                        changed = true;
-                    }
-                }
-            }
-            if !changed {
-                return (order, why);
-            }
-        }
-    }
-
-    /// (x, τ) を導くのに必要な事実を `need` に集める。
-    fn collect_needed(
-        &self,
-        x: usize,
-        t: &Spf<L>,
-        why: &HashMap<(usize, Spf<L>), Why<L>>,
-        need: &mut HashSet<(usize, Spf<L>)>,
-    ) {
-        match t {
-            Spf::Top | Spf::Var(_) => {}
-            Spf::And(a, b) => {
-                self.collect_needed(x, a, why, need);
-                self.collect_needed(x, b, why, need);
-            }
-            Spf::Dia(_, beta) => {
-                if !need.insert((x, t.clone())) {
+            SubNode::Dia(_, beta) => {
+                if !need.insert((x, i)) {
                     return;
                 }
-                match &why[&(x, t.clone())] {
-                    Why::Edge { child, via_box: true, .. } => self.collect_needed(*child, t, why, need),
-                    Why::Edge { child, via_box: false, .. } => self.collect_needed(*child, beta, why, need),
-                    Why::Push { parent, .. } => self.collect_needed(*parent, t, why, need),
+                match f.why(x, i) {
+                    Why::Edge { child, via_dia: true } => self.collect_needed(d, f, child, i, need),
+                    Why::Edge { child, via_dia: false } => self.collect_needed(d, f, child, *beta, need),
+                    Why::Push { parent } => self.collect_needed(d, f, parent, i, need),
+                    Why::Base | Why::And => unreachable!("⟨m⟩β は辺か押し下げで得る"),
                 }
             }
         }
+    }
+
+    /// 木の辺 parent →k child のラベル k。
+    fn label(&self, child: usize) -> L {
+        self.nodes[child].parent.as_ref().expect("根以外").1.clone()
     }
 
     // ---------------- 小さな導出の部品 ----------------
@@ -450,19 +369,20 @@ impl<L: Letter> Deriver<L> {
     }
 
     /// 事実 (x, τ = ⟨m⟩β) を書き足すステップ：根の式の「前 ⊢ 後」の導出を返す。
-    fn add_fact(&mut self, x: usize, t: &Spf<L>, why: &Why<L>) -> usize {
+    fn add_fact(&mut self, x: usize, t: &Spf<L>, why: Why) -> usize {
         let Spf::Dia(m, beta) = t else { unreachable!("事実は ⟨m⟩β の形") };
         match why {
-            Why::Edge { child, k, via_box } => {
+            Why::Edge { child, via_dia } => {
+                let k = &self.label(child);
                 // G_x ⊢ ⟨k⟩G_y ⊢ ⟨k⟩β（または ⟨k⟩⟨m⟩β）⊢ ⟨m⟩β
-                let gy = self.render(*child);
-                let py = if *via_box { self.fact_proof(*child, t) } else { self.fact_proof(*child, beta) };
+                let gy = self.render(child);
+                let py = if via_dia { self.fact_proof(child, t) } else { self.fact_proof(child, beta) };
                 let olds = self.path_renders(x);
                 let gx = olds[0].clone();
                 let proj = self.find_leaf(&gx, &Spf::dia(k.clone(), gy)).expect("子は葉");
                 let n = self.nec(k, py);
                 let mut q = self.cut(proj, n);
-                if *via_box {
+                if via_dia {
                     if k > m {
                         let mono = self.axiom(RcRule::Mono, Spf::dia(k.clone(), t.clone()), Spf::dia(m.clone(), t.clone()));
                         q = self.cut(q, mono);
@@ -478,9 +398,10 @@ impl<L: Letter> Deriver<L> {
                 let local = self.rebuild(&gx, &gx_new, &HashMap::from([(t.clone(), q)])).expect("葉が 1 つ増えるだけ");
                 self.lift(x, local, &olds)
             }
-            Why::Push { parent, k } => {
+            Why::Push { parent } => {
+                let k = &self.label(x);
                 // G_t ⊢ ⟨k⟩G_x ∧ ⟨m⟩β ⊢ ⟨k⟩(G_x ∧ ⟨m⟩β) ⊢ ⟨k⟩G'_x
-                let olds = self.path_renders(*parent);
+                let olds = self.path_renders(parent);
                 let (gt, gx) = (olds[0].clone(), self.render(x));
                 let dia_gx = Spf::dia(k.clone(), gx.clone());
                 let pa = self.find_leaf(&gt, &dia_gx).expect("子は葉");
@@ -493,11 +414,12 @@ impl<L: Letter> Deriver<L> {
                 let inner = self.rebuild(&Spf::and(gx, t.clone()), &gx_new, &HashMap::new()).expect("並べ替えだけ");
                 let n = self.nec(k, inner);
                 let leaf_proof = self.cut(r, n);
-                let gt_new = self.render(*parent);
+                let gt_new = self.render(parent);
                 let hints = HashMap::from([(Spf::dia(k.clone(), gx_new), leaf_proof)]);
                 let local = self.rebuild(&gt, &gt_new, &hints).expect("1 つの葉だけ変わる");
-                self.lift(*parent, local, &olds)
+                self.lift(parent, local, &olds)
             }
+            Why::Base | Why::And => unreachable!("⟨m⟩β は辺か押し下げで得る"),
         }
     }
 }
@@ -505,7 +427,7 @@ impl<L: Letter> Deriver<L> {
 /// 導出の大きさなどの情報。
 #[derive(Clone, Debug, Serialize)]
 pub struct DeriveStats {
-    /// 飽和で得た事実の数
+    /// 飽和で得た事実 ⟨m⟩β（⟨m⟩β ∈ Sub(B)）の数
     pub facts_total: usize,
     /// 導出に使った（書き足した）事実の数
     pub facts_used: usize,
@@ -514,25 +436,26 @@ pub struct DeriveStats {
 /// RC で A ⊢ B の導出を作る。成り立たなければ `Err`。
 pub fn derive<L: Letter>(lhs: &Spf<L>, rhs: &Spf<L>) -> Result<(RcProof<L>, DeriveStats), String> {
     let mut d = Deriver::new(lhs);
-    let (order, why) = d.saturate(rhs);
-    if !d.holds(0, rhs) {
+    let (sub, facts) = d.saturate(rhs);
+    if !facts.holds(0, sub.root) {
         return Err(format!("RC ⊬ {lhs} ⊢ {rhs}"));
     }
     let mut need = HashSet::new();
-    d.collect_needed(0, rhs, &why, &mut need);
+    d.collect_needed(&sub, &facts, 0, sub.root, &mut need);
 
-    // 書き足す前の状態に戻してから、必要な事実だけを順に書き足す
+    // 書き足す前の状態から、必要な事実だけを得た順に書き足す
     let start = d.render(0);
     let mut proof = d.rebuild(lhs, &start, &HashMap::new()).expect("A ⊢ 並べ替えた A");
     let mut used = 0;
-    for (x, t) in &order {
-        if need.contains(&(*x, t.clone())) {
+    for &(x, i) in &facts.order {
+        if need.contains(&(x, i)) {
+            let t = &sub.form[i];
             // すでに式の葉から構造的に取り出せる事実（例：子 ⟨m⟩β そのもの）は書き足さない
-            let gx = d.render(*x);
+            let gx = d.render(x);
             if d.find_leaf(&gx, t).is_some() {
                 continue;
             }
-            let step = d.add_fact(*x, t, &why[&(*x, t.clone())]);
+            let step = d.add_fact(x, t, facts.why(x, i));
             proof = d.cut(proof, step);
             used += 1;
         }
@@ -540,7 +463,8 @@ pub fn derive<L: Letter>(lhs: &Spf<L>, rhs: &Spf<L>) -> Result<(RcProof<L>, Deri
     let end = d.render(0);
     let last = d.fact_from(&end, rhs);
     let root = d.cut(proof, last);
-    let stats = DeriveStats { facts_total: order.len(), facts_used: used };
+    let facts_total = facts.order.iter().filter(|&&(_, i)| matches!(sub.node[i], SubNode::Dia(..))).count();
+    let stats = DeriveStats { facts_total, facts_used: used };
     Ok((d.b.finish(root), stats))
 }
 

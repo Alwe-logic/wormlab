@@ -10,19 +10,23 @@ use crate::letter::Letter;
 use crate::worm::Worm;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::rc::Rc;
 use std::str::FromStr;
 
 /// 強正値式。モダリティの番号の型 `L` の既定は自然数 `u32`。
 ///
 /// 【Rust メモ】再帰的な enum は、自分自身を直接は含めない（サイズが
-/// 決まらないため）。`Box<Spf>` は「ヒープ上の Spf へのポインタ」で、
-/// これを挟むと再帰型が作れる。
+/// 決まらないため）。`Rc<Spf>` は「ヒープ上の Spf を指す、参照カウントつきの
+/// ポインタ」で、これを挟むと再帰型が作れる。`Box` と違って `clone` は
+/// ポインタを複製するだけ（O(1)）なので、同じ部分式を多くの場所で共有できる。
+/// RC の導出では、大きな左辺をシーケントごとに持つのでこれが効く。
+/// 中身は書き換えないので、共有しても値としての意味は変わらない。
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Spf<L = u32> {
     Top,
     Var(String),
-    And(Box<Spf<L>>, Box<Spf<L>>),
-    Dia(L, Box<Spf<L>>),
+    And(Rc<Spf<L>>, Rc<Spf<L>>),
+    Dia(L, Rc<Spf<L>>),
 }
 
 impl<L: Letter> Spf<L> {
@@ -31,11 +35,11 @@ impl<L: Letter> Spf<L> {
     }
 
     pub fn and(a: Spf<L>, b: Spf<L>) -> Spf<L> {
-        Spf::And(Box::new(a), Box::new(b))
+        Spf::And(Rc::new(a), Rc::new(b))
     }
 
     pub fn dia(n: L, a: Spf<L>) -> Spf<L> {
-        Spf::Dia(n, Box::new(a))
+        Spf::Dia(n, Rc::new(a))
     }
 
     /// 複数の式の連言（空なら ⊤）。
