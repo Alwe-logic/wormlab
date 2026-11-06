@@ -9,13 +9,14 @@
 //!   wormlab lt     1 "0 2" "1"       一般の worm で A <_n B か
 //!   wormlab wc     "1 1 |- 0 1 0 1"  worm シーケントの WC 証明（--json で JSON）
 //!   wormlab wclt   0 "1 1" "2"       A <_n B（B ⊢ nA）の WC 証明
+//!   wormlab ordinal "ω^ε_0 + 1"      Γ0 未満の順序数を正規形にする（2 つ渡すと比較）
 
 use serde_json::json;
 use std::cmp::Ordering;
 use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
-use wormlab_core::{Sequent, Worm, headbody, rc};
+use wormlab_core::{Sequent, Veblen, Worm, headbody, rc};
 
 fn parse(s: &str) -> Result<Worm, String> {
     s.parse::<Worm>().map_err(|e| e.to_string())
@@ -165,6 +166,46 @@ fn run(args: &[String]) -> Result<(), String> {
             let p = wc::prove_lt(n, &parse(a)?, &parse(b)?)?;
             show_proof(&p, json)
         }
+        [cmd, a] if cmd == "ordinal" => {
+            let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+            let kind = if x.is_zero() {
+                "0"
+            } else if x.is_successor() {
+                "後続順序数"
+            } else {
+                "極限順序数"
+            };
+            let cnf: Vec<String> = x
+                .cnf()
+                .iter()
+                .map(|(e, c)| {
+                    let base = if e.is_zero() {
+                        return c.to_string();
+                    } else if e.is_finite() || e.is_principal() {
+                        format!("ω^{e}")
+                    } else {
+                        format!("ω^({e})")
+                    };
+                    if *c == 1 { base } else { format!("{base}·{c}") }
+                })
+                .collect();
+            println!("正規形    : {x}");
+            println!("種類      : {kind}{}", if x.to_cnf().is_some() { "（ε0 未満）" } else { "（ε0 以上）" });
+            println!("CNF       : {}", if cnf.is_empty() { "0".to_string() } else { cnf.join(" + ") });
+            println!("ℓ（最後の指数）: {}", x.last_exponent());
+            Ok(())
+        }
+        [cmd, a, b] if cmd == "ordinal" => {
+            let p = |s: &str| s.parse::<Veblen>().map_err(|e| e.to_string());
+            let (x, y) = (p(a)?, p(b)?);
+            let rel = match x.cmp(&y) {
+                Ordering::Less => "<",
+                Ordering::Equal => "=",
+                Ordering::Greater => ">",
+            };
+            println!("{x}  {rel}  {y}");
+            Ok(())
+        }
         _ => Err(USAGE.to_string()),
     }
 }
@@ -178,7 +219,9 @@ const USAGE: &str = "使い方:
   wormlab lt     <n> <worm> <worm> 一般の worm で A <_n B か
   wormlab wc     \"A |- B\"          worm シーケントの WC 証明（--json で JSON 出力）
   wormlab wclt   <n> <worm> <worm> A <_n B（B ⊢ nA）の WC 証明
-worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など";
+  wormlab ordinal <順序数> [<順序数>]  Γ0 未満の順序数の正規形（2 つなら比較）
+worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
+順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
