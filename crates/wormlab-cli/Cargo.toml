@@ -1,0 +1,13 @@
+[package]
+name = "wormlab-cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "wormlab"
+path = "src/main.rs"
+
+[dependencies]
+wormlab-core = { path = "../wormlab-core" }
+serde_json = "1"
