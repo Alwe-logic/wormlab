@@ -1,0 +1,68 @@
+---
+import Base from '../layouts/Base.astro';
+import Battle from '../components/Battle.astro';
+import Ordinal from '../components/Ordinal.astro';
+import Proof from '../components/Proof.astro';
+import Model from '../components/Model.astro';
+
+const tabs = [
+  { id: 'battle', label: 'battle' },
+  { id: 'ordinal', label: '順序数電卓' },
+  { id: 'proof', label: '証明' },
+  { id: 'model', label: 'Kripke モデル' },
+];
+---
+
+<Base title="wormlab">
+  <header class="site">
+    <div class="wrap">
+      <h1>wormlab</h1>
+      <span class="sub">Beklemishev の worm・反射計算・順序数を、ブラウザの中で計算する</span>
+      <nav class="tabs" aria-label="道具">
+        {tabs.map((t) => <a href={`#${t.id}`} data-tab={t.id}>{t.label}</a>)}
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <Battle />
+    <Ordinal />
+    <Proof />
+    <Model />
+  </main>
+  <footer>
+    <div class="wrap">
+      計算はすべてこのブラウザの中で、Rust で書いた wormlab-core（WebAssembly 版 <span id="version">…</span>）が行います。
+      参考文献：Beklemishev（RC）、de Almeida Borges–Joosten（WC）、Fernández-Duque–Hermo Reyes（括弧語・BC）、
+      Pakhomov–Lazar（RC_BI, arXiv:2610.20115）。
+    </div>
+  </footer>
+</Base>
+
+<script>
+  import { wasm } from '../lib/wasm';
+
+  // タブの切り替え（URL の #battle などで選ぶ）
+  function select() {
+    const id = location.hash.slice(1) || 'battle';
+    document.querySelectorAll<HTMLElement>('section.panel').forEach((p) => {
+      p.classList.toggle('active', p.dataset.panel === id);
+    });
+    document.querySelectorAll<HTMLAnchorElement>('nav.tabs a').forEach((a) => {
+      if (a.dataset.tab === id) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+  }
+  window.addEventListener('hashchange', select);
+  select();
+
+  // WebAssembly を先に読み込んでおき、版を表示する
+  wasm()
+    .then((api) => {
+      const v = document.getElementById('version');
+      if (v) v.textContent = api.version();
+    })
+    .catch((e) => {
+      const v = document.getElementById('version');
+      if (v) v.textContent = `（読み込めません：${e instanceof Error ? e.message : String(e)}）`;
+    });
+</script>

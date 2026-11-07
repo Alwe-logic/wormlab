@@ -1,0 +1,104 @@
+---
+// Kripke モデルの表示：RC の閉包モデルと、RC_BI の有限モデル M_A。
+---
+
+<section class="panel" data-panel="model">
+  <p class="lead">
+    判定の中身であるモデルを描きます。RC では式の構文木を閉包したモデル、RC_BI では論文の M_A
+    （構文木に零点・中間点・コピー点を足して閉包したもの）です。シーケント A ⊢ B を入れると、B が真になる点を
+    太い輪で示します。
+  </p>
+  <div class="card">
+    <div class="controls">
+      <select id="m-system" aria-label="体系">
+        <option value="rcbi">RC_BI の M_A</option>
+        <option value="rc">RC の閉包モデル</option>
+      </select>
+      <input type="text" id="m-input" value="D <1> T" aria-label="式かシーケント" />
+      <button class="primary" id="m-run" type="button">描く</button>
+    </div>
+    <div class="examples" id="m-examples"></div>
+    <div class="status" id="m-status" aria-live="polite"></div>
+  </div>
+  <div class="card" id="m-result" hidden>
+    <div class="verdict" id="m-title"></div>
+    <div class="muted" id="m-extra" style="font-size:13px;margin-bottom:6px"></div>
+    <div id="m-graph"></div>
+  </div>
+</section>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { byId, h, setStatus } from '../lib/dom';
+  import { renderModel, type ModelJson } from '../lib/graph';
+
+  const EXAMPLES: Record<string, string[]> = {
+    rcbi: ['D <1> T', '<2>_2 <2>_3 T', 'D T & <2>_2 T', '<2>_2 T |- <1> D T', 'D T |- <2>_2 T'],
+    rc: ['<2>p & <1>q', '<1>(p & <0>q)', '<2>p |- <0><1>p', '<0>p |- <1>p'],
+  };
+  const KINDS =
+    '点の色：白 = 構文木の点、青 = 零点、灰 = 中間点、橙 = コピー点。点に重ねると説明が出ます。';
+
+  const system = byId<HTMLSelectElement>('m-system');
+  const input = byId<HTMLInputElement>('m-input');
+  const status = byId('m-status');
+
+  function fillExamples() {
+    const box = byId('m-examples');
+    box.replaceChildren(h('span', {}, '例：'));
+    for (const x of EXAMPLES[system.value]) {
+      const b = h('button', { type: 'button' }, x);
+      b.addEventListener('click', () => {
+        input.value = x;
+        run();
+      });
+      box.append(b);
+    }
+  }
+
+  async function run() {
+    setStatus(status, '計算中…');
+    await nextFrame();
+    try {
+      const m = await call<ModelJson>((api) =>
+        system.value === 'rc' ? api.rc_model(input.value) : api.rcbi_model(input.value),
+      );
+      setStatus(status, '');
+      const title = byId('m-title');
+      if (m.holds === undefined) {
+        title.textContent = m.title ?? '';
+      } else {
+        title.replaceChildren(
+          h('span', { class: m.holds ? 'yes' : 'no' }, m.holds ? '成り立つ：' : '成り立たない：'),
+          m.title ?? '',
+        );
+      }
+      const extra = [`${m.points.length} 点`];
+      if (system.value === 'rcbi') {
+        extra.push(KINDS);
+        if (m.frame_violations) {
+          extra.push(
+            m.frame_violations.length === 0
+              ? 'フレーム条件 I〜IV をすべて満たす（RC_BIω モデル）'
+              : `フレーム条件の違反 ${m.frame_violations.length} 件（バグです）`,
+          );
+        }
+      }
+      byId('m-extra').textContent = extra.join('　');
+      renderModel(byId('m-graph'), m, '右辺が真');
+      byId('m-result').hidden = false;
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
+  system.addEventListener('change', () => {
+    input.value = EXAMPLES[system.value][0];
+    fillExamples();
+  });
+  byId('m-run').addEventListener('click', run);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') run();
+  });
+  fillExamples();
+</script>

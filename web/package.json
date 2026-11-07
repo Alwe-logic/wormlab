@@ -1,0 +1,21 @@
+{
+  "name": "wormlab-web",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "wormlab の計算をブラウザで見るためのサイト（Astro + WebAssembly）",
+  "scripts": {
+    "wasm": "wasm-pack build ../crates/wormlab-wasm --target web --release --out-dir ../../web/src/pkg --out-name wormlab_wasm",
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "astro": "^5.18.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "typescript": "^5.9.3"
+  }
+}

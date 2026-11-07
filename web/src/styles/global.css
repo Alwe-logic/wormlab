@@ -1,0 +1,470 @@
+/* wormlab の見た目。色はすべてここの変数（トークン）で決め、ライト・ダークで入れ替える。 */
+
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --surface-2: #f3f2ee;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #6f6d68;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --good: #006300;
+  --critical: #d03b3b;
+  /* 系列の色（固定の順で使う） */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+  --series-muted: #898781;
+  /* Kripke モデルの点の種類 */
+  --kind-tree: #fcfcfb;
+  --kind-zero: #cde2fb;
+  --kind-int: #e1e0d9;
+  --kind-copy: #fbe0d4;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Hiragino Sans", "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #232321;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #9a988f;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #3987e5;
+    --good: #0ca30c;
+    --critical: #e66767;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --kind-tree: #1a1a19;
+    --kind-zero: #184f95;
+    --kind-int: #383835;
+    --kind-copy: #5a2e1c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --surface-2: #232321;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #9a988f;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #3987e5;
+  --good: #0ca30c;
+  --critical: #e66767;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --kind-tree: #1a1a19;
+  --kind-zero: #184f95;
+  --kind-int: #383835;
+  --kind-copy: #5a2e1c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+header.site {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+header.site .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding-top: 14px;
+}
+
+header.site h1 {
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+header.site .sub {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+nav.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin-top: 10px;
+  width: 100%;
+}
+
+nav.tabs a {
+  padding: 8px 14px;
+  border-radius: 8px 8px 0 0;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+
+nav.tabs a[aria-current="page"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+main.wrap {
+  padding-top: 20px;
+  padding-bottom: 48px;
+}
+
+section.panel {
+  display: none;
+}
+
+section.panel.active {
+  display: block;
+}
+
+.lead {
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+  max-width: 70ch;
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.controls label {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+input[type="text"],
+select,
+input[type="number"] {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+input[type="text"] {
+  font-family: var(--mono);
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+input[type="number"] {
+  width: 80px;
+}
+
+button {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  align-items: center;
+}
+
+.examples button {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.status {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  min-height: 1.4em;
+}
+
+.status.error {
+  color: var(--critical);
+}
+
+.verdict {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 4px 0 8px;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.verdict .yes {
+  color: var(--good);
+}
+
+.verdict .no {
+  color: var(--critical);
+}
+
+table.kv {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+table.kv th,
+table.kv td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--grid);
+}
+
+table.kv th {
+  width: 12em;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+table.kv td {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+ol.seq {
+  margin: 0;
+  padding-left: 2.2em;
+  font-family: var(--mono);
+}
+
+ol.seq li {
+  overflow-wrap: anywhere;
+}
+
+/* 図 */
+.figure {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.figure svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--mono);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.legend label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+/* 証明の木 */
+.proof-tree details {
+  margin-left: 18px;
+  border-left: 1px solid var(--grid);
+  padding-left: 8px;
+}
+
+.proof-tree > details {
+  margin-left: 0;
+  border-left: none;
+  padding-left: 0;
+}
+
+.proof-tree summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.proof-tree .leaf {
+  margin-left: 18px;
+  padding: 2px 0 2px 8px;
+  border-left: 1px solid var(--grid);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.rule {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 0 6px;
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+
+.side {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--accent);
+  margin-right: 6px;
+}
+
+.proof-lines {
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 480px;
+}
+
+.player {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.player input[type="range"] {
+  flex: 1 1 200px;
+}
+
+.step-text {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+footer {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+}
+
+footer a {
+  color: var(--text-secondary);
+}

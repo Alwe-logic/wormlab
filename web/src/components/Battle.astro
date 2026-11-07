@@ -1,0 +1,178 @@
+---
+// battle のアニメーション：worm・括弧語・RC_BI の式を、基本列で 1 ステップずつ下げていく。
+---
+
+<section class="panel" data-panel="battle">
+  <p class="lead">
+    出発点の worm を、k 回目には k を使った基本列で 1 段ずつ下げていきます（Beklemishev の worm battle）。
+    途中でどれだけ長くなっても、いつか必ず ⊤ に着きます。ただしこの事実は PA では証明できません（括弧語の版は
+    ATR₀ でも証明できません）。
+  </p>
+  <div class="card">
+    <div class="controls">
+      <label
+        >種類
+        <select id="b-kind">
+          <option value="worm">worm（文字が自然数、ε₀ まで）</option>
+          <option value="bracket">括弧語（Γ₀ まで）</option>
+          <option value="rcbi">RC_BI の式（Bachmann–Howard まで）</option>
+        </select>
+      </label>
+      <input type="text" id="b-input" value="2 0 2" aria-label="出発点" />
+      <label>最大ステップ <input type="number" id="b-limit" value="200" min="1" max="2000" /></label>
+      <button class="primary" id="b-run" type="button">実行</button>
+    </div>
+    <div class="examples" id="b-examples"></div>
+    <div class="status" id="b-status" aria-live="polite"></div>
+  </div>
+
+  <div class="card" id="b-result" hidden>
+    <div class="player">
+      <button id="b-prev" type="button" aria-label="前のステップ">◀</button>
+      <button id="b-play" type="button">▶ 再生</button>
+      <button id="b-next" type="button" aria-label="次のステップ">▶</button>
+      <input type="range" id="b-slider" min="0" max="0" value="0" aria-label="ステップ" />
+      <span id="b-pos" class="mono"></span>
+    </div>
+    <div id="b-bars"></div>
+    <table class="kv">
+      <tr><th>このステップ</th><td><div class="step-text" id="b-text"></div></td></tr>
+      <tr><th>順序数</th><td id="b-ord"></td></tr>
+    </table>
+    <div id="b-chart" style="margin-top:12px"></div>
+    <details style="margin-top:8px">
+      <summary>全ステップの順序数</summary>
+      <ol class="seq" start="0" id="b-list"></ol>
+    </details>
+  </div>
+</section>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { byId, h, setStatus } from '../lib/dom';
+  import { bars, lengthChart } from '../lib/charts';
+
+  interface Step {
+    letters?: number[];
+    ranks?: number[];
+    letter_ordinals?: string[];
+    text?: string;
+    ordinal?: string;
+    size?: number;
+  }
+  interface BattleJson {
+    kind: string;
+    steps: Step[];
+    finished: boolean;
+    stopped: string | null;
+  }
+
+  const EXAMPLES: Record<string, string[]> = {
+    worm: ['1 1', '2 0 2', '1 2 1', '2 2', '3'],
+    bracket: ['(())()', '(()())', '(()(()))', '((()))'],
+    rcbi: ['<1>_2 <1>T', '<1>_3 T', 'D T', '<2>_2 T'],
+  };
+
+  const kind = byId<HTMLSelectElement>('b-kind');
+  const input = byId<HTMLInputElement>('b-input');
+  const limit = byId<HTMLInputElement>('b-limit');
+  const status = byId('b-status');
+  const result = byId('b-result');
+  const slider = byId<HTMLInputElement>('b-slider');
+  const play = byId<HTMLButtonElement>('b-play');
+  let data: BattleJson | null = null;
+  let timer: number | undefined;
+
+  function fillExamples() {
+    const box = byId('b-examples');
+    box.replaceChildren(h('span', {}, '例：'));
+    for (const x of EXAMPLES[kind.value]) {
+      const b = h('button', { type: 'button' }, x);
+      b.addEventListener('click', () => {
+        input.value = x;
+        run();
+      });
+      box.append(b);
+    }
+  }
+
+  function lengthOf(st: Step): number {
+    return st.letters?.length ?? st.ranks?.length ?? st.size ?? 0;
+  }
+
+  function show(i: number) {
+    if (!data) return;
+    const st = data.steps[i];
+    slider.value = String(i);
+    byId('b-pos').textContent = `${i} / ${data.steps.length - 1}`;
+    const barsBox = byId('b-bars');
+    if (data.kind === 'worm') {
+      const ls = st.letters ?? [];
+      const max = Math.max(1, ...data.steps.map((s) => Math.max(0, ...(s.letters ?? [0]))));
+      bars(barsBox, ls, ls.map(String), max);
+      byId('b-text').textContent = ls.length ? ls.join(' ') : '⊤';
+    } else if (data.kind === 'bracket') {
+      const rs = st.ranks ?? [];
+      bars(barsBox, rs, st.letter_ordinals ?? [], Math.max(1, ...rs));
+      byId('b-text').textContent = st.text ?? '';
+    } else {
+      barsBox.replaceChildren();
+      byId('b-text').textContent = st.text ?? '';
+    }
+    byId('b-ord').textContent =
+      st.ordinal ?? '（標準表記での o(A) は未計算。論文もこの対応は直接計算していない）';
+    lengthChart(byId('b-chart'), data.steps.map(lengthOf), i, show);
+  }
+
+  function stop() {
+    if (timer !== undefined) window.clearInterval(timer);
+    timer = undefined;
+    play.textContent = '▶ 再生';
+  }
+
+  async function run() {
+    stop();
+    setStatus(status, '計算中…');
+    await nextFrame();
+    try {
+      const n = Math.min(2000, Math.max(1, Number(limit.value) || 200));
+      data = await call<BattleJson>((api) => api.battle(kind.value, input.value, n));
+      const steps = data.steps.length - 1;
+      const end = data.finished
+        ? `${steps} ステップで ⊤ に着きました。`
+        : data.stopped
+          ? `${steps} ステップ表示（${data.stopped}）。`
+          : `${steps} ステップで打ち切り（まだ ⊤ に着いていません）。`;
+      setStatus(status, end);
+      slider.max = String(steps);
+      const list = byId('b-list');
+      list.replaceChildren(...data.steps.map((s) => h('li', {}, s.ordinal ?? s.text ?? '')));
+      result.hidden = false;
+      show(0);
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
+  kind.addEventListener('change', () => {
+    input.value = EXAMPLES[kind.value][0];
+    fillExamples();
+  });
+  byId('b-run').addEventListener('click', run);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') run();
+  });
+  slider.addEventListener('input', () => show(Number(slider.value)));
+  byId('b-prev').addEventListener('click', () => show(Math.max(0, Number(slider.value) - 1)));
+  byId('b-next').addEventListener('click', () => show(Math.min(Number(slider.max), Number(slider.value) + 1)));
+  play.addEventListener('click', () => {
+    if (timer !== undefined) return stop();
+    play.textContent = '❚❚ 停止';
+    timer = window.setInterval(() => {
+      const i = Number(slider.value);
+      if (i >= Number(slider.max)) return stop();
+      show(i + 1);
+    }, 450);
+  });
+  fillExamples();
+</script>

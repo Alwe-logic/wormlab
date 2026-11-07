@@ -1,0 +1,22 @@
+---
+// ページ全体の枠：見出し・タブ・フッター。
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content="Beklemishev の worm、反射計算（RC・WC・BC・RC_BI）、順序数をブラウザで計算する" />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

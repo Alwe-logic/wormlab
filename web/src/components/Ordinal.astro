@@ -1,0 +1,224 @@
+---
+// 順序数電卓：順序数・worm・括弧語を相互に変換し、基本列や大小を調べる。
+// 下の段は RC_BI の式の比較と基本列。
+---
+
+<section class="panel" data-panel="ordinal">
+  <p class="lead">
+    Γ₀ 未満の順序数を、Veblen 表記・worm（文字が順序数）・括弧語で書き換えます。どの書き方で入れても、
+    同じ順序数の標準形が出ます。
+  </p>
+  <div class="card">
+    <h2>変換と基本列</h2>
+    <div class="controls">
+      <select id="o-kind" aria-label="入力の種類">
+        <option value="ordinal">順序数</option>
+        <option value="worm">worm</option>
+        <option value="bracket">括弧語</option>
+      </select>
+      <input type="text" id="o-input" value="ε_0" aria-label="入力" />
+      <button class="primary" id="o-run" type="button">計算</button>
+    </div>
+    <div class="examples" id="o-examples"></div>
+    <div class="status" id="o-status" aria-live="polite"></div>
+    <table class="kv" id="o-table" hidden></table>
+  </div>
+
+  <div class="card">
+    <h2>大小の比較</h2>
+    <div class="controls">
+      <select id="c-kind-a" aria-label="左の種類">
+        <option value="ordinal">順序数</option><option value="worm" selected>worm</option><option value="bracket">括弧語</option>
+      </select>
+      <input type="text" id="c-a" value="1 1" aria-label="左" />
+      <select id="c-kind-b" aria-label="右の種類">
+        <option value="ordinal">順序数</option><option value="worm">worm</option><option value="bracket">括弧語</option>
+      </select>
+      <input type="text" id="c-b" value="ω^2" aria-label="右" />
+      <button class="primary" id="c-run" type="button">比較</button>
+    </div>
+    <div class="verdict" id="c-out"></div>
+  </div>
+
+  <div class="card">
+    <h2>RC_BI の式（Pakhomov–Lazar）：順序 &lt;¹₁ と基本列</h2>
+    <p class="muted" style="margin:0 0 8px;font-size:13px">
+      A &lt;¹₁ B は「B ⊢ ⟨1⟩₁A」。∇ を含まない閉じた式はこの順序で整列し、Bachmann–Howard 順序数までを表します。
+      書き方：<span class="mono">&lt;1&gt;_2</span> = ⟨1⟩₂、<span class="mono">&lt;2&gt;_3</span> = ⟨2⟩₃、
+      <span class="mono">D</span> = ↓、<span class="mono">T</span> = ⊤。
+    </p>
+    <div class="controls">
+      <input type="text" id="r-a" value="<1>_3<2>_3 T" aria-label="式 A" />
+      <input type="text" id="r-b" value="<2>_2<2>_3 T" aria-label="式 B" />
+      <button class="primary" id="r-cmp" type="button">比較</button>
+    </div>
+    <div class="verdict" id="r-out"></div>
+    <div class="controls" style="margin-top:10px">
+      <input type="text" id="r-f" value="<2>_2<2>_3 T" aria-label="基本列を見る式" />
+      <button id="r-fs" type="button">形と基本列</button>
+    </div>
+    <div class="status" id="r-status" aria-live="polite"></div>
+    <div id="r-info"></div>
+  </div>
+</section>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { byId, h, setStatus } from '../lib/dom';
+
+  interface Info {
+    input: { kind: string; text: string; normal_form?: string; is_normal?: boolean; depth?: number; worm?: string };
+    ordinal: string;
+    is_zero: boolean;
+    is_limit: boolean;
+    is_successor: boolean;
+    below_epsilon0: boolean;
+    worm: string;
+    worm_finite: string | null;
+    bracket: string;
+    bracket_depth: number;
+    fundamental: string[];
+    worm_fundamental: string[];
+    hardy: { n: string; value: string | null }[];
+  }
+
+  const EXAMPLES: Record<string, string[]> = {
+    ordinal: ['ε_0', 'ω^ω + 3', 'ε_1', 'φ(2, 0)', 'φ(ω, 0)', 'φ(ε_0, 0)'],
+    worm: ['2 0 1', '1 1 1', '<ω><ω>', '<ε_0 + 1><0>'],
+    bracket: ['((()))', '(())()', '((())(()))', '(((())))'],
+  };
+
+  const kind = byId<HTMLSelectElement>('o-kind');
+  const input = byId<HTMLInputElement>('o-input');
+  const status = byId('o-status');
+  const table = byId<HTMLTableElement>('o-table');
+
+  function row(label: string, value: Node | string) {
+    return h('tr', {}, h('th', {}, label), h('td', {}, value));
+  }
+
+  function seq(items: string[]) {
+    return h('ol', { class: 'seq', start: '0' }, ...items.map((x) => h('li', {}, x)));
+  }
+
+  async function run() {
+    setStatus(status, '計算中…');
+    await nextFrame();
+    try {
+      const r = await call<Info>((api) => api.ordinal_info(kind.value, input.value));
+      setStatus(status, '');
+      const rows = [row('入力', r.input.text)];
+      if (r.input.kind === 'worm' && r.input.normal_form) rows.push(row('入力の標準形', r.input.normal_form));
+      if (r.input.kind === 'bracket') {
+        rows.push(row('翻訳 a*', r.input.worm ?? ''));
+        rows.push(row('入力の正規形', `${r.input.normal_form}${r.input.is_normal ? '（この語自身が正規形）' : ''}`));
+      }
+      rows.push(row('順序数', r.ordinal));
+      rows.push(row('種類', r.is_zero ? '0' : r.is_limit ? '極限順序数' : '後続順序数'));
+      if (r.worm_finite) rows.push(row('worm（自然数の文字）', r.worm_finite || '⊤'));
+      rows.push(row('worm（順序数の文字）', r.worm || '⊤'));
+      rows.push(row('括弧語（正規形）', `${r.bracket}　（入れ子の深さ ${r.bracket_depth}）`));
+      if (r.fundamental.length) rows.push(row('標準の基本列 α[0..5]', seq(r.fundamental)));
+      if (r.worm_fundamental.length) rows.push(row('worm が作る列 α{0..5}', seq(r.worm_fundamental)));
+      if (r.hardy.length) {
+        rows.push(
+          row(
+            'Hardy 関数',
+            h(
+              'div',
+              {},
+              ...r.hardy.map((x) => h('div', {}, `H_α(${x.n}) = ${x.value ?? '大きすぎて打ち切り'}`)),
+            ),
+          ),
+        );
+      }
+      table.replaceChildren(...rows);
+      table.hidden = false;
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+      table.hidden = true;
+    }
+  }
+
+  function fillExamples() {
+    const box = byId('o-examples');
+    box.replaceChildren(h('span', {}, '例：'));
+    for (const x of EXAMPLES[kind.value]) {
+      const b = h('button', { type: 'button' }, x);
+      b.addEventListener('click', () => {
+        input.value = x;
+        run();
+      });
+      box.append(b);
+    }
+  }
+
+  kind.addEventListener('change', () => {
+    input.value = EXAMPLES[kind.value][0];
+    fillExamples();
+  });
+  byId('o-run').addEventListener('click', run);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') run();
+  });
+  fillExamples();
+
+  // 比較
+  byId('c-run').addEventListener('click', async () => {
+    const out = byId('c-out');
+    try {
+      const r = await call<{ a: string; b: string; relation: string }>((api) =>
+        api.ordinal_compare(
+          byId<HTMLSelectElement>('c-kind-a').value,
+          byId<HTMLInputElement>('c-a').value,
+          byId<HTMLSelectElement>('c-kind-b').value,
+          byId<HTMLInputElement>('c-b').value,
+        ),
+      );
+      out.textContent = `${r.a}  ${r.relation}  ${r.b}`;
+    } catch (e) {
+      out.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
+
+  // RC_BI
+  byId('r-cmp').addEventListener('click', async () => {
+    const out = byId('r-out');
+    out.textContent = '計算中…';
+    await nextFrame();
+    try {
+      const r = await call<{ a: string; b: string; relation: string | null }>((api) =>
+        api.rcbi_compare(byId<HTMLInputElement>('r-a').value, byId<HTMLInputElement>('r-b').value),
+      );
+      const rel = r.relation ? `${r.relation}¹₁` : '?（比較できない：Thm 4.11 に反する）';
+      out.textContent = `${r.a}  ${rel}  ${r.b}`;
+    } catch (e) {
+      out.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
+
+  byId('r-fs').addEventListener('click', async () => {
+    const st = byId('r-status');
+    const box = byId('r-info');
+    setStatus(st, '計算中…');
+    await nextFrame();
+    try {
+      const r = await call<{ formula: string; form: string; predecessor: string | null; approximations: string[] }>(
+        (api) => api.rcbi_info(byId<HTMLInputElement>('r-f').value, 5),
+      );
+      setStatus(st, '');
+      const form = r.form === 'zero' ? '零（⊤ と ≡¹₁）' : r.form === 'successor' ? '後続形' : '極限形';
+      const rows = [row('式', r.formula), row('形', form)];
+      if (r.predecessor) rows.push(row('直前', r.predecessor));
+      if (r.approximations.length) {
+        rows.push(
+          row('基本列 (A)_1..5', h('ol', { class: 'seq' }, ...r.approximations.map((x) => h('li', {}, x)))),
+        );
+      }
+      box.replaceChildren(h('table', { class: 'kv' }, ...rows));
+    } catch (e) {
+      setStatus(st, e instanceof Error ? e.message : String(e), true);
+      box.replaceChildren();
+    }
+  });
+</script>
