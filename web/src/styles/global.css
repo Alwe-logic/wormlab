@@ -113,7 +113,9 @@ header.site {
 .wrap {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 0 16px;
+  /* 左右の余白。スマホの横向きで画面の端の切り欠き（safe area）にかからないよう max() で広げる */
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 
 header.site .wrap {

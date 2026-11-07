@@ -571,6 +571,8 @@ pub struct Model {
     r2: Vec<Vec<BitSet>>,
     down: Vec<BitSet>,
     nabla: Vec<BitSet>,
+    /// 閉包を取る前の辺（前モデルの辺とコピー点の辺）。描画の骨組みに使う
+    base: Vec<(usize, Edge, usize)>,
 }
 
 impl Model {
@@ -636,6 +638,7 @@ impl Model {
             r2: vec![vec![BitSet::new(n); n]; nf - 1],
             down: vec![BitSet::new(n); n],
             nabla: vec![BitSet::new(n); n],
+            base: edges.clone(),
         };
         for (x, e, y) in edges {
             match e {
@@ -807,8 +810,25 @@ impl Model {
         &self.nabla[x]
     }
 
+    /// 閉包を取る前の辺 (始点, 関係の名前, 終点)。名前は [`Self::relations`] と同じ書き方。
+    pub fn base_edges(&self) -> Vec<(usize, String, usize)> {
+        self.base
+            .iter()
+            .map(|&(x, e, y)| {
+                let name = match e {
+                    Edge::One(Rank::Omega) => "R¹_ω".to_string(),
+                    Edge::One(r) => format!("R¹{r}"),
+                    Edge::Two(k) => format!("R²{}", Rank::Fin(k)),
+                    Edge::Down => "R↓".to_string(),
+                    Edge::Nabla => "R∇".to_string(),
+                };
+                (x, name, y)
+            })
+            .collect()
+    }
+
     /// 持っているすべての関係（名前と行の組）。表示とフレーム条件の検査に使う。
-    fn relations(&self) -> Vec<(String, &Vec<BitSet>)> {
+    pub fn relations(&self) -> Vec<(String, &Vec<BitSet>)> {
         let mut out = Vec::new();
         for k in 1..=self.n_fin {
             out.push((format!("R¹{}", Rank::Fin(k)), &self.r1[k as usize - 1]));

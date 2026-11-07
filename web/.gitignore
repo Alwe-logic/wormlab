@@ -3,3 +3,4 @@ dist/
 .astro/
 src/pkg/
 public/pkg/
+dist-artifact/

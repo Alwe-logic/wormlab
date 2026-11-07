@@ -9,10 +9,9 @@ Beklemishev の worm、多様相証明可能性論理 GLP、Reflection Calculus 
 crates/
   wormlab-core/   計算エンジン本体（I/O に依存しない純粋なライブラリ）
   wormlab-cli/    コマンドラインツール `wormlab`
+  wormlab-wasm/   ブラウザから呼ぶための層（WebAssembly、入出力は JSON）
+web/              Web 可視化（Astro）。使い方は web/README.md
 ```
-
-今後 `wormlab-py`（PyO3 で Python/Jupyter から使う）と
-`wormlab-wasm`（Web 可視化用）を追加する予定。
 
 ## 準備（初回だけ）
 
@@ -22,11 +21,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 エディタは VS Code に拡張機能 **rust-analyzer** を入れるのがおすすめ。
 
-Web 化に備えた確認（コアが WebAssembly でビルドできるか）：
+Web 可視化の準備と起動は [web/README.md](web/README.md) を参照（`wasm-pack` と Node.js を使う）：
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo build -p wormlab-core --target wasm32-unknown-unknown
+cargo install wasm-pack
+cd web && npm install && npm run wasm && npm run dev
 ```
 
 ## 使い方
@@ -94,5 +94,6 @@ worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が�
 - [x] RC_BI 手順 1：式・パーサ、有限モデル M_A による閉じた式の判定（arXiv:2610.20115）
 - [x] RC_BI 手順 2：順序 <¹₁・≡¹₁、基本列 (A)_n、線形性の検証
 - [ ] RC_BI 手順 3：o(A) の計算（ε₀ → Γ₀ → Bachmann–Howard）
-- [ ] 段階3: Web 可視化
+- [x] 段階3: Web 可視化（Astro ＋ WebAssembly）：battle・順序数電卓・証明・Kripke モデル
+- [ ] Web の公開（claude.ai のページ、GitHub Pages）
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

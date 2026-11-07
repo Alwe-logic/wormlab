@@ -138,6 +138,11 @@ impl<L: Letter> Model<L> {
         &self.sig
     }
 
+    /// 標準木の辺 (親, モダリティ, 子)。閉包で足した辺は含まない（描画の骨組みに使う）。
+    pub fn tree_edges(&self) -> &[(usize, L, usize)] {
+        &self.tree_edges
+    }
+
     /// x R_m y か（m が署名にない場合は false）。
     pub fn related(&self, m: &L, x: usize, y: usize) -> bool {
         match self.sig.binary_search(m) {
