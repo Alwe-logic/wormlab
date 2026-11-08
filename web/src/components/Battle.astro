@@ -32,18 +32,27 @@
       <button id="b-play" type="button">▶ 再生</button>
       <button id="b-next" type="button" aria-label="次のステップ">▶</button>
       <input type="range" id="b-slider" min="0" max="0" value="0" aria-label="ステップ" />
-      <span id="b-pos" class="mono"></span>
+      <span id="b-pos" class="hud"></span>
     </div>
     <div id="b-bars"></div>
     <table class="kv">
       <tr><th>このステップ</th><td><div class="step-text" id="b-text"></div></td></tr>
       <tr><th>順序数</th><td id="b-ord"></td></tr>
+      <tr>
+        <th>数式（LaTeX）</th>
+        <td>
+          <div class="tex-inline" id="b-math"></div>
+          <button type="button" class="small" id="b-copy">このステップのコードをコピー</button>
+          <span class="tex-msg" id="b-copy-msg" aria-live="polite"></span>
+        </td>
+      </tr>
     </table>
     <div id="b-chart" style="margin-top:12px"></div>
     <details style="margin-top:8px">
       <summary>全ステップの順序数</summary>
       <ol class="seq" start="0" id="b-list"></ol>
     </details>
+    <div id="b-tex"></div>
   </div>
 </section>
 
@@ -51,6 +60,7 @@
   import { call, nextFrame } from '../lib/wasm';
   import { byId, h, setStatus } from '../lib/dom';
   import { bars, lengthChart } from '../lib/charts';
+  import { renderTex, texBlock } from '../lib/latex';
 
   interface Step {
     letters?: number[];
@@ -59,12 +69,17 @@
     text?: string;
     ordinal?: string;
     size?: number;
+    /** 式の LaTeX（長すぎると null） */
+    latex?: string | null;
+    ordinal_latex?: string;
   }
   interface BattleJson {
     kind: string;
     steps: Step[];
     finished: boolean;
     stopped: string | null;
+    /** 先頭 rows 行の表（全 total 行） */
+    latex_table: { code: string; rows: number; total: number };
   }
 
   const EXAMPLES: Record<string, string[]> = {
@@ -82,6 +97,26 @@
   const play = byId<HTMLButtonElement>('b-play');
   let data: BattleJson | null = null;
   let timer: number | undefined;
+  let stepTex = '';
+  let mathSeq = 0;
+
+  /** ステップ i の式と順序数を、揃えた 2 行の数式にする。 */
+  function stepLatex(kind: string, i: number, st: Step): string {
+    const [name, ord] = kind === 'bracket' ? [`a_{${i}}`, `o^{*}(a_{${i}})`] : [`A_{${i}}`, `o(A_{${i}})`];
+    const lines: string[] = [];
+    lines.push(`${name} &= ${st.latex ?? '\\cdots\\ \\text{(too long)}'}`);
+    if (st.ordinal_latex) lines.push(`${ord} &= ${st.ordinal_latex}`);
+    return `\\[\n\\begin{aligned}\n${lines.join(' \\\\\n')}\n\\end{aligned}\n\\]`;
+  }
+
+  /** 数式の欄を描き直す。再生中に追い越されたら、古い結果は捨てる。 */
+  function drawMath(tex: string) {
+    const seq = ++mathSeq;
+    const tmp = document.createElement('div');
+    renderTex(tmp, tex).then(() => {
+      if (seq === mathSeq) byId('b-math').replaceChildren(...Array.from(tmp.childNodes));
+    });
+  }
 
   function fillExamples() {
     const box = byId('b-examples');
@@ -104,7 +139,7 @@
     if (!data) return;
     const st = data.steps[i];
     slider.value = String(i);
-    byId('b-pos').textContent = `${i} / ${data.steps.length - 1}`;
+    byId('b-pos').textContent = `STEP ${i}/${data.steps.length - 1}  LEN ${lengthOf(st)}`;
     const barsBox = byId('b-bars');
     if (data.kind === 'worm') {
       const ls = st.letters ?? [];
@@ -121,6 +156,8 @@
     }
     byId('b-ord').textContent =
       st.ordinal ?? '（標準表記での o(A) は未計算。論文もこの対応は直接計算していない）';
+    stepTex = stepLatex(data.kind, i, st);
+    drawMath(stepTex);
     lengthChart(byId('b-chart'), data.steps.map(lengthOf), i, show);
   }
 
@@ -132,6 +169,7 @@
 
   async function run() {
     stop();
+    status.classList.remove('clear');
     setStatus(status, '計算中…');
     await nextFrame();
     try {
@@ -144,10 +182,23 @@
           ? `${steps} ステップ表示（${data.stopped}）。`
           : `${steps} ステップで打ち切り（まだ ⊤ に着いていません）。`;
       setStatus(status, end);
+      status.classList.toggle('clear', data.finished);
       slider.max = String(steps);
       const list = byId('b-list');
       list.replaceChildren(...data.steps.map((s) => h('li', {}, s.ordinal ?? s.text ?? '')));
       result.hidden = false;
+      const t = data.latex_table;
+      byId('b-tex').replaceChildren(
+        texBlock({
+          title: '全ステップの表（LaTeX）',
+          code: t.code,
+          render: 'manual',
+          note:
+            t.rows < t.total
+              ? `先頭 ${t.rows} 行（全 ${t.total} 行）を表にしています（式が長くなったところで止めています）。`
+              : `${t.total} 行。`,
+        }).el,
+      );
       show(0);
     } catch (e) {
       setStatus(status, e instanceof Error ? e.message : String(e), true);
@@ -163,6 +214,16 @@
     if (e.key === 'Enter') run();
   });
   slider.addEventListener('input', () => show(Number(slider.value)));
+  byId('b-copy').addEventListener('click', async () => {
+    const msg = byId('b-copy-msg');
+    try {
+      await navigator.clipboard.writeText(stepTex);
+      msg.textContent = 'コピーしました';
+    } catch {
+      msg.textContent = 'コピーできませんでした（下の表のコードを使ってください）';
+    }
+    window.setTimeout(() => (msg.textContent = ''), 3000);
+  });
   byId('b-prev').addEventListener('click', () => show(Math.max(0, Number(slider.value) - 1)));
   byId('b-next').addEventListener('click', () => show(Math.min(Number(slider.max), Number(slider.value) + 1)));
   play.addEventListener('click', () => {

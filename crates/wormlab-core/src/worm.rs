@@ -21,6 +21,7 @@
 //! 例：o(⊤)=0, o(0)=1, o(1)=ω, o(0 1)=ω+1, o(1 0)=ω（1 0 ≡ 1）,
 //!     o(1 0 1)=ω·2, o(1 1)=ω², o(2)=ω^ω。
 
+use crate::latex::ToLatex;
 use crate::letter::Letter;
 use crate::ordinal::Ordinal;
 use std::cmp::Ordering;
@@ -308,6 +309,13 @@ impl<L: Letter> fmt::Display for Worm<L> {
             return write!(f, "⊤");
         }
         write!(f, "{}", L::fmt_worm(&self.0))
+    }
+}
+
+impl<L: Letter> ToLatex for Worm<L> {
+    /// `\langle 2\rangle\langle 0\rangle\top`（括弧語の worm は括弧語そのもの）。空の worm は `\top`。
+    fn to_latex(&self) -> String {
+        if self.0.is_empty() { "\\top".to_string() } else { L::latex_worm(&self.0) }
     }
 }
 

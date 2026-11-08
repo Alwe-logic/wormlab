@@ -6,6 +6,7 @@
   <p class="lead">
     シーケント A ⊢ B を判定し、成り立てば導出を作って検査してから表示します（検査器は導出を 1 ステップずつ
     規則に照らすだけなので、表示された導出は正しいと保証されます）。成り立たなければ反例のモデルを表示します。
+    証明は LaTeX（bussproofs の証明木と行番号つきの一覧）、モデルは TikZ のコードでも出します。
   </p>
   <div class="card">
     <div class="controls">
@@ -25,6 +26,7 @@
     <div class="verdict" id="p-verdict"></div>
     <div class="muted" id="p-extra" style="font-size:13px;margin-bottom:8px"></div>
     <div id="p-body"></div>
+    <div id="p-tex"></div>
   </div>
 </section>
 
@@ -33,6 +35,7 @@
   import { byId, h, setStatus } from '../lib/dom';
   import { renderProof, type ProofJson } from '../lib/proof';
   import { renderModel, type ModelJson } from '../lib/graph';
+  import { texBlock } from '../lib/latex';
 
   interface ProveJson {
     holds: boolean;
@@ -41,6 +44,8 @@
     model?: ModelJson;
     tau?: string;
     stats?: Record<string, number>;
+    /** シーケント（⊢ か ⊬）の LaTeX */
+    latex: string;
   }
 
   const EXAMPLES: Record<string, string[]> = {
@@ -96,6 +101,7 @@
       }
       if (r.proof) extra.push('導出は検査済み');
       byId('p-extra').textContent = extra.join('　');
+      byId('p-tex').replaceChildren(texBlock({ title: 'シーケント（LaTeX）', code: r.latex }).el);
       const body = byId('p-body');
       if (r.proof) {
         renderProof(body, r.proof);

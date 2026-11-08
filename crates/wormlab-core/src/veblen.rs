@@ -18,6 +18,7 @@
 //! ε0 未満の範囲では、すべての主項が φ(0, β) = ω^β になり、
 //! これまでの [`Ordinal`]（Cantor 標準形）とちょうど一致する。
 
+use crate::latex::ToLatex;
 use crate::ordinal::Ordinal;
 use std::cmp::Ordering;
 use std::fmt;
@@ -405,6 +406,34 @@ impl fmt::Display for Veblen {
             })
             .collect();
         write!(f, "{}", parts.join(" + "))
+    }
+}
+
+impl ToLatex for Veblen {
+    /// `\omega^{\omega}\cdot 2 + 3`、`\varepsilon_{0}`、`\varphi(2, 0)` のように書く。
+    /// 指数・添字は { } でくくるので、表示のような括弧は要らない。
+    fn to_latex(&self) -> String {
+        if self.is_zero() {
+            return "0".to_string();
+        }
+        let parts: Vec<String> = self
+            .terms
+            .iter()
+            .map(|(p, c)| {
+                if p.a.is_zero() && p.b.is_zero() {
+                    return c.to_string();
+                }
+                let base = if p.a.is_zero() {
+                    if p.b.as_nat() == Some(1) { "\\omega".to_string() } else { format!("\\omega^{{{}}}", p.b.to_latex()) }
+                } else if p.a.as_nat() == Some(1) {
+                    format!("\\varepsilon_{{{}}}", p.b.to_latex())
+                } else {
+                    format!("\\varphi({}, {})", p.a.to_latex(), p.b.to_latex())
+                };
+                if *c == 1 { base } else { format!("{base} \\cdot {c}") }
+            })
+            .collect();
+        parts.join(" + ")
     }
 }
 

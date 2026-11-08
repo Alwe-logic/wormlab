@@ -5,6 +5,7 @@
 //!
 //! 指数 β_i もまた同じ形の順序数なので、型は再帰的になる。
 
+use crate::latex::ToLatex;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Add;
@@ -179,6 +180,28 @@ impl fmt::Display for Ordinal {
             })
             .collect();
         write!(f, "{}", parts.join(" + "))
+    }
+}
+
+impl ToLatex for Ordinal {
+    /// Cantor 標準形 `\omega^{\omega} \cdot 2 + 3`。
+    fn to_latex(&self) -> String {
+        if self.is_zero() {
+            return "0".to_string();
+        }
+        let parts: Vec<String> = self
+            .terms
+            .iter()
+            .map(|(e, c)| {
+                let base = match e.as_nat() {
+                    Some(0) => return c.to_string(),
+                    Some(1) => "\\omega".to_string(),
+                    _ => format!("\\omega^{{{}}}", e.to_latex()),
+                };
+                if *c == 1 { base } else { format!("{base} \\cdot {c}") }
+            })
+            .collect();
+        parts.join(" + ")
     }
 }
 

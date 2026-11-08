@@ -9,12 +9,13 @@
 //! 関数を `fn f<L: Letter>(x: &L)` と書けば、u32 用と Veblen 用の 2 つの版を
 //! コンパイラが自動で作ってくれる（ジェネリクス、単相化）。
 
+use crate::latex::ToLatex;
 use crate::veblen::Veblen;
 use serde::Serialize;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-pub trait Letter: Clone + Ord + Eq + Hash + Debug + Display + Serialize + 'static {
+pub trait Letter: Clone + Ord + Eq + Hash + Debug + Display + Serialize + ToLatex + 'static {
     /// 最小の文字 0。
     fn zero() -> Self;
 
@@ -24,6 +25,13 @@ pub trait Letter: Clone + Ord + Eq + Hash + Debug + Display + Serialize + 'stati
     /// worm 全体の表示。既定は ⟨α⟩⟨β⟩… の形（⊤ は省略）。
     fn fmt_worm(letters: &[Self]) -> String {
         letters.iter().map(|x| format!("⟨{x}⟩")).collect()
+    }
+
+    /// worm 全体の LaTeX。既定は `\langle α\rangle\langle β\rangle…\top`。
+    fn latex_worm(letters: &[Self]) -> String {
+        let mut s: String = letters.iter().map(|x| format!("\\langle {}\\rangle", x.to_latex())).collect();
+        s.push_str("\\top");
+        s
     }
 
     /// 区切りの空白だけで文字を並べてよいか（"1 0 2" のような書き方）。

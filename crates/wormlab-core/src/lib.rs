@@ -31,13 +31,19 @@
 //!   有限モデル M_A による閉じた式の判定（arXiv:2610.20115, Thm 3.19）とフレーム条件の検査
 //! - [`rcbi_order`]：RC_BI の順序 <¹₁・≡¹₁（Def 4.1）、式の形（零・後続・極限）、基本列 (A)_n（Def 4.6）、battle
 //! - [`hierarchy`]：Hardy 階層・急増加関数（標準の基本列 α[n] による）、battle の長さ
+//!
+//! 書き出し：
+//! - [`latex`]：式・順序数・証明（bussproofs の木と行番号つきの一覧）・battle を LaTeX に
+//! - [`modelview`]：Kripke モデルの表示用の形（点の配置つき）と TikZ への書き出し
 
 pub mod bc;
 pub mod bitset;
 pub mod bracket;
 pub mod headbody;
 pub mod hierarchy;
+pub mod latex;
 pub mod letter;
+pub mod modelview;
 pub mod ordinal;
 pub mod proof;
 pub mod rc;

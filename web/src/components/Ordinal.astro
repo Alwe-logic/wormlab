@@ -22,6 +22,7 @@
     <div class="examples" id="o-examples"></div>
     <div class="status" id="o-status" aria-live="polite"></div>
     <table class="kv" id="o-table" hidden></table>
+    <div id="o-tex"></div>
   </div>
 
   <div class="card">
@@ -38,6 +39,7 @@
       <button class="primary" id="c-run" type="button">比較</button>
     </div>
     <div class="verdict" id="c-out"></div>
+    <div id="c-tex"></div>
   </div>
 
   <div class="card">
@@ -53,6 +55,7 @@
       <button class="primary" id="r-cmp" type="button">比較</button>
     </div>
     <div class="verdict" id="r-out"></div>
+    <div id="r-tex"></div>
     <div class="controls" style="margin-top:10px">
       <input type="text" id="r-f" value="<2>_2<2>_3 T" aria-label="基本列を見る式" />
       <button id="r-fs" type="button">形と基本列</button>
@@ -65,6 +68,7 @@
 <script>
   import { call, nextFrame } from '../lib/wasm';
   import { byId, h, setStatus } from '../lib/dom';
+  import { texBlock } from '../lib/latex';
 
   interface Info {
     input: { kind: string; text: string; normal_form?: string; is_normal?: boolean; depth?: number; worm?: string };
@@ -80,6 +84,8 @@
     fundamental: string[];
     worm_fundamental: string[];
     hardy: { n: string; value: string | null }[];
+    /** 書き換え・基本列・Hardy 関数をまとめた align* */
+    latex: string;
   }
 
   const EXAMPLES: Record<string, string[]> = {
@@ -134,9 +140,17 @@
       }
       table.replaceChildren(...rows);
       table.hidden = false;
+      byId('o-tex').replaceChildren(
+        texBlock({
+          title: 'LaTeX（書き換え・基本列・Hardy 関数）',
+          code: r.latex,
+          note: '\\begin{align*} は amsmath。worm は ⟨α⟩…⊤、括弧語の順序数は o^*(a) と書いています。',
+        }).el,
+      );
     } catch (e) {
       setStatus(status, e instanceof Error ? e.message : String(e), true);
       table.hidden = true;
+      byId('o-tex').replaceChildren();
     }
   }
 
@@ -167,7 +181,7 @@
   byId('c-run').addEventListener('click', async () => {
     const out = byId('c-out');
     try {
-      const r = await call<{ a: string; b: string; relation: string }>((api) =>
+      const r = await call<{ a: string; b: string; relation: string; latex: string }>((api) =>
         api.ordinal_compare(
           byId<HTMLSelectElement>('c-kind-a').value,
           byId<HTMLInputElement>('c-a').value,
@@ -176,8 +190,10 @@
         ),
       );
       out.textContent = `${r.a}  ${r.relation}  ${r.b}`;
+      byId('c-tex').replaceChildren(texBlock({ title: 'LaTeX', code: r.latex }).el);
     } catch (e) {
       out.textContent = e instanceof Error ? e.message : String(e);
+      byId('c-tex').replaceChildren();
     }
   });
 
@@ -187,13 +203,15 @@
     out.textContent = '計算中…';
     await nextFrame();
     try {
-      const r = await call<{ a: string; b: string; relation: string | null }>((api) =>
+      const r = await call<{ a: string; b: string; relation: string | null; latex: string | null }>((api) =>
         api.rcbi_compare(byId<HTMLInputElement>('r-a').value, byId<HTMLInputElement>('r-b').value),
       );
       const rel = r.relation ? `${r.relation}¹₁` : '?（比較できない：Thm 4.11 に反する）';
       out.textContent = `${r.a}  ${rel}  ${r.b}`;
+      byId('r-tex').replaceChildren(r.latex ? texBlock({ title: 'LaTeX', code: r.latex }).el : '');
     } catch (e) {
       out.textContent = e instanceof Error ? e.message : String(e);
+      byId('r-tex').replaceChildren();
     }
   });
 
@@ -203,9 +221,13 @@
     setStatus(st, '計算中…');
     await nextFrame();
     try {
-      const r = await call<{ formula: string; form: string; predecessor: string | null; approximations: string[] }>(
-        (api) => api.rcbi_info(byId<HTMLInputElement>('r-f').value, 5),
-      );
+      const r = await call<{
+        formula: string;
+        form: string;
+        predecessor: string | null;
+        approximations: string[];
+        latex: string;
+      }>((api) => api.rcbi_info(byId<HTMLInputElement>('r-f').value, 5));
       setStatus(st, '');
       const form = r.form === 'zero' ? '零（⊤ と ≡¹₁）' : r.form === 'successor' ? '後続形' : '極限形';
       const rows = [row('式', r.formula), row('形', form)];
@@ -215,7 +237,10 @@
           row('基本列 (A)_1..5', h('ol', { class: 'seq' }, ...r.approximations.map((x) => h('li', {}, x)))),
         );
       }
-      box.replaceChildren(h('table', { class: 'kv' }, ...rows));
+      box.replaceChildren(
+        h('table', { class: 'kv' }, ...rows),
+        texBlock({ title: 'LaTeX（形と基本列）', code: r.latex }).el,
+      );
     } catch (e) {
       setStatus(st, e instanceof Error ? e.message : String(e), true);
       box.replaceChildren();

@@ -35,6 +35,7 @@
 //!
 //! 導出は DAG として持ち、同じ部分導出は共有する。正しさは検査器 [`check`] が保証する。
 
+use crate::latex::ToLatex;
 use crate::letter::Letter;
 use crate::proof::{self, Builder, Calculus, Proof};
 use crate::rc::{self, ATree, Facts, SubDag, SubNode, Why};
@@ -59,6 +60,12 @@ pub struct RSeq<L = u32> {
 impl<L: Letter> fmt::Display for RSeq<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ⊢ {}", self.lhs, self.rhs)
+    }
+}
+
+impl<L: Letter> ToLatex for RSeq<L> {
+    fn to_latex(&self) -> String {
+        format!("{} \\vdash {}", self.lhs.to_latex(), self.rhs.to_latex())
     }
 }
 
@@ -92,6 +99,12 @@ impl fmt::Display for RcRule {
             RcRule::J => "J",
         };
         write!(f, "{s}")
+    }
+}
+
+impl ToLatex for RcRule {
+    fn to_latex(&self) -> String {
+        crate::latex::rule_name(&self.to_string())
     }
 }
 

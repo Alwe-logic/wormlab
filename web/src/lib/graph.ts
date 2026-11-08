@@ -1,91 +1,50 @@
 // Kripke モデル（RC の閉包モデル、RC_BI の M_A）を SVG で描く。
 //
-// 点の配置：根から「骨組みの辺」（閉包を取る前の辺）をたどった深さで段に分け、
-// 段の中では親の位置の平均（重心）で並べる。辺は関係ごとに色を固定して描く。
-// 閉包で足した辺は多くなりがちなので、関係ごとにチェックを入れたものだけ描く。
+// 点の配置は Rust 側（wormlab-core の modelview）が計算して JSON の layout に入れてくる：
+// 根から「骨組みの辺」（閉包を取る前の辺）をたどった深さで段に分け、段の中では親の位置の
+// 平均（重心）で並べる。TikZ の図も同じ配置なので、見た目がそろう。
+// 辺は関係ごとに色を固定して描く。閉包で足した辺は多くなりがちなので、関係ごとに
+// チェックを入れたものだけ描く。
 
 import { h, hideTip, s, showTip } from './dom';
+import { texBlock } from './latex';
+import { call } from './wasm';
 
 export interface Point {
   id: number;
   label: string;
   kind: string;
+  /** "point"・"tree"・"zero"・"int"・"copy" */
+  tag: string;
+  latex: string;
   anchor?: number | null;
 }
 
 export interface ModelJson {
   root: number;
   points: Point[];
-  relations: { name: string; edges: [number, number][] }[];
+  relations: { name: string; latex: string; edges: [number, number][] }[];
   base_edges: [number, string, number][];
   highlight: number[];
+  layout: { x: number[]; y: number[]; width: number; height: number };
   holds?: boolean;
   title?: string;
   frame_violations?: string[] | null;
 }
 
-const R = 15; // 点の半径
-const LAYER = 92; // 段の間隔
-const GAP = 84; // 段の中の点の間隔
+const R = 15; // 点の半径（Rust の modelview::RADIUS と同じ）
+let figures = 0; // これまでに描いた図の数（矢印の id を図ごとに変えるため）
 
 /** 関係の色（固定の順。9 本目以降は灰色）。 */
 function color(i: number): string {
   return i < 8 ? `var(--series-${i + 1})` : 'var(--series-muted)';
 }
 
-function kindFill(kind: string): string {
-  if (kind.startsWith('零')) return 'var(--kind-zero)';
-  if (kind.startsWith('中間')) return 'var(--kind-int)';
-  if (kind.includes('コピー')) return 'var(--kind-copy)';
+function kindFill(tag: string): string {
+  if (tag === 'zero') return 'var(--kind-zero)';
+  if (tag === 'int') return 'var(--kind-int)';
+  if (tag === 'copy') return 'var(--kind-copy)';
   return 'var(--kind-tree)';
-}
-
-/** 深さと段の中の順番から座標を決める。 */
-function layout(m: ModelJson): { x: number[]; y: number[]; width: number; height: number } {
-  const n = m.points.length;
-  const depth = new Array<number>(n).fill(-1);
-  const parents: number[][] = Array.from({ length: n }, () => []);
-  const bfs = (adj: number[][]) => {
-    const queue = depth.map((d, i) => (d >= 0 ? i : -1)).filter((i) => i >= 0);
-    while (queue.length) {
-      const x = queue.shift()!;
-      for (const y of adj[x]) {
-        if (depth[y] < 0) {
-          depth[y] = depth[x] + 1;
-          parents[y].push(x);
-          queue.push(y);
-        }
-      }
-    }
-  };
-  const baseAdj: number[][] = Array.from({ length: n }, () => []);
-  for (const [x, , y] of m.base_edges) if (x !== y) baseAdj[x].push(y);
-  depth[m.root] = 0;
-  bfs(baseAdj);
-  // 骨組みで届かない点は、すべての関係で
-  const allAdj: number[][] = Array.from({ length: n }, () => []);
-  for (const r of m.relations) for (const [x, y] of r.edges) if (x !== y) allAdj[x].push(y);
-  bfs(allAdj);
-  const maxD = Math.max(0, ...depth);
-  for (let i = 0; i < n; i++) if (depth[i] < 0) depth[i] = maxD + 1;
-
-  const layers: number[][] = [];
-  for (let i = 0; i < n; i++) (layers[depth[i]] ??= []).push(i);
-  const x = new Array<number>(n).fill(0);
-  const widest = Math.max(...layers.map((l) => l?.length ?? 0));
-  const width = Math.max(320, (widest + 1) * GAP);
-  for (const layer of layers) {
-    if (!layer) continue;
-    // 親の x の平均で並べる（根の段はそのまま）
-    const key = (i: number) =>
-      parents[i].length ? parents[i].reduce((a, p) => a + x[p], 0) / parents[i].length : i;
-    layer.sort((a, b) => key(a) - key(b) || a - b);
-    layer.forEach((p, k) => {
-      x[p] = ((k + 1) * width) / (layer.length + 1);
-    });
-  }
-  const y = depth.map((d) => 40 + d * LAYER);
-  return { x, y, width, height: 40 + (layers.length - 1) * LAYER + 50 };
 }
 
 /** 2 点を結ぶ（曲げ量 bend の）パス。端は点の円の外側から。 */
@@ -112,7 +71,7 @@ function edgePath(x1: number, y1: number, x2: number, y2: number, bend: number):
 /** モデルを描く。`container` の中身を置き換える。 */
 export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel = 'B が真'): void {
   container.replaceChildren();
-  const { x, y, width, height } = layout(m);
+  const { x, y, width, height } = m.layout;
   const names = m.relations.map((r) => r.name);
   const colorOf = (name: string) => color(Math.max(0, names.indexOf(name)));
 
@@ -134,8 +93,10 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
 
   const svg = s('svg', { width, height, viewBox: `0 0 ${width} ${height}`, role: 'img' });
   const defs = s('defs');
+  // 矢印の id は図ごとに変える（同じページに図が 2 つあると、id が重なって隠れた方の矢印を参照してしまう）
+  const uid = ++figures;
   const markerFor = (i: number) => {
-    const id = `arrow-${i}`;
+    const id = `arrow-${uid}-${i}`;
     if (!defs.querySelector(`#${id}`)) {
       defs.append(
         s(
@@ -212,7 +173,7 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
         cx: x[p.id],
         cy: y[p.id],
         r: R,
-        fill: kindFill(p.kind),
+        fill: kindFill(p.tag),
         stroke: ring ? 'var(--accent)' : 'var(--text-secondary)',
         'stroke-width': ring ? 3.5 : 1.2,
       }),
@@ -243,8 +204,30 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
     nodeLayer.append(g);
   }
 
-  showBase.addEventListener('change', drawEdges);
-  relChecks.forEach((c) => c.addEventListener('change', drawEdges));
+  // TikZ のコード：図と同じ配置で、いま描いている辺（骨組み・チェックした関係）を描く
+  const tikz = texBlock({
+    title: 'TikZ のコード（上の図と同じ配置・同じ辺）',
+    code: '',
+    render: 'none',
+    note: 'LaTeX の文書で \\usepackage{tikz} が必要です。チェックを切り替えると、描く辺もそれに合わせて変わります。',
+  });
+  const model = JSON.stringify(m);
+  const updateTikz = async () => {
+    const shown = m.relations.filter((_, i) => relChecks[i].checked).map((r) => r.name);
+    try {
+      const r = await call<{ tikz: string }>((api) => api.model_tikz(model, JSON.stringify(shown), showBase.checked));
+      tikz.setCode(r.tikz);
+    } catch (e) {
+      tikz.setCode(`% ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const redraw = () => {
+    drawEdges();
+    updateTikz();
+  };
+
+  showBase.addEventListener('change', redraw);
+  relChecks.forEach((c) => c.addEventListener('change', redraw));
   drawEdges();
   container.append(h('div', { class: 'figure' }, svg));
 
@@ -260,5 +243,7 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
   );
   container.append(
     h('details', { style: 'margin-top:8px' }, h('summary', {}, '表で見る'), h('table', { class: 'kv' }, pointsRow, ...rows)),
+    tikz.el,
   );
+  updateTikz();
 }

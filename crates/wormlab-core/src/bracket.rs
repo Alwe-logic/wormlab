@@ -33,6 +33,7 @@
 //! （仕組みは [`BracketOrder`] を参照）。両者が一致することはテストで確かめる。
 //! 正規形の括弧語は [`NfBracket`] として worm・RC の「文字」に使える。
 
+use crate::latex::ToLatex;
 use crate::headbody::is_bnf;
 use crate::letter::Letter;
 use crate::transfinite::hyperexp;
@@ -414,6 +415,12 @@ impl fmt::Display for NfBracket {
     }
 }
 
+impl ToLatex for NfBracket {
+    fn to_latex(&self) -> String {
+        self.0.to_latex()
+    }
+}
+
 impl serde::Serialize for NfBracket {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(self)
@@ -433,6 +440,10 @@ impl Letter for NfBracket {
     fn fmt_worm(letters: &[Self]) -> String {
         Bracket(letters.iter().map(|x| x.0.clone()).collect()).to_string()
     }
+
+    fn latex_worm(letters: &[Self]) -> String {
+        Bracket(letters.iter().map(|x| x.0.clone()).collect()).to_latex()
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -449,6 +460,13 @@ impl Bracket {
 impl fmt::Display for Bracket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_top() { write!(f, "⊤") } else { write!(f, "{}", self.body()) }
+    }
+}
+
+impl ToLatex for Bracket {
+    /// 括弧語はそのまま `(())()`、空の語は `\top`。
+    fn to_latex(&self) -> String {
+        if self.is_top() { "\\top".to_string() } else { self.body() }
     }
 }
 

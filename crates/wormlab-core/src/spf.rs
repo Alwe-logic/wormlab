@@ -6,6 +6,7 @@
 //!
 //! 否定も含意も ∨ もない。worm はちょうど「∧ を含まない閉じた強正値式」。
 
+use crate::latex::ToLatex;
 use crate::letter::Letter;
 use crate::worm::Worm;
 use std::collections::BTreeSet;
@@ -113,7 +114,11 @@ impl<L: Letter> fmt::Display for Spf<L> {
         match self {
             Spf::Top => write!(f, "⊤"),
             Spf::Var(p) => write!(f, "{p}"),
-            Spf::And(a, b) => write!(f, "{a} ∧ {b}"),
+            // 右側の ∧ は括弧でくくる（パースすると左結合になるので。∧E1・∧E2 の読み違いを防ぐ）
+            Spf::And(a, b) => match **b {
+                Spf::And(..) => write!(f, "{a} ∧ ({b})"),
+                _ => write!(f, "{a} ∧ {b}"),
+            },
             Spf::Dia(n, a) => match **a {
                 Spf::And(..) => write!(f, "⟨{n}⟩({a})"),
                 _ => write!(f, "⟨{n}⟩{a}"),
@@ -282,6 +287,30 @@ pub struct Sequent<L = u32> {
 impl<L: Letter> fmt::Display for Sequent<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ⊢ {}", self.lhs, self.rhs)
+    }
+}
+
+impl<L: Letter> ToLatex for Spf<L> {
+    /// `\langle 1\rangle(p \land \langle 0\rangle q)` のように書く（表示と同じ形）。
+    fn to_latex(&self) -> String {
+        match self {
+            Spf::Top => "\\top".to_string(),
+            Spf::Var(p) => crate::latex::var(p),
+            Spf::And(a, b) => match **b {
+                Spf::And(..) => format!("{} \\land ({})", a.to_latex(), b.to_latex()),
+                _ => format!("{} \\land {}", a.to_latex(), b.to_latex()),
+            },
+            Spf::Dia(n, a) => match **a {
+                Spf::And(..) => format!("\\langle {}\\rangle({})", n.to_latex(), a.to_latex()),
+                _ => format!("\\langle {}\\rangle {}", n.to_latex(), a.to_latex()),
+            },
+        }
+    }
+}
+
+impl<L: Letter> ToLatex for Sequent<L> {
+    fn to_latex(&self) -> String {
+        format!("{} \\vdash {}", self.lhs.to_latex(), self.rhs.to_latex())
     }
 }
 

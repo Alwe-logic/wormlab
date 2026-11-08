@@ -46,6 +46,8 @@ export function byId<T extends HTMLElement = HTMLElement>(id: string): T {
 export function setStatus(el: HTMLElement, msg: string, error = false): void {
   el.textContent = msg;
   el.classList.toggle('error', error);
+  // 計算中は、小さな worm が伸び縮みする印を出す（CSS の .status.busy）
+  el.classList.toggle('busy', msg === '計算中…');
 }
 
 /** ツールチップ（ページに 1 つだけ）。 */

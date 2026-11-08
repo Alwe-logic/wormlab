@@ -14,9 +14,13 @@ export interface Api {
   rcbi_model(input: string): string;
   rcbi_info(input: string, k: number): string;
   rcbi_compare(a: string, b: string): string;
+  model_tikz(model: string, shown: string, base: boolean): string;
+  /** LaTeX の断片をプリアンブルつきの文書にする（JSON ではなく文字列） */
+  latex_document(body: string): string;
 }
 
 let loading: Promise<Api> | null = null;
+let ready: Api | null = null;
 
 // `npm run wasm` が作る src/pkg/wormlab_wasm.js を、Vite の普通のモジュールとして読む。
 // import.meta.glob を使うのは、まだビルドしていない（ファイルがない）ときにもページ自体は
@@ -30,7 +34,13 @@ async function load(): Promise<Api> {
   }
   const mod = (await loader()) as { default: () => Promise<unknown> } & Api;
   await mod.default();
+  ready = mod;
   return mod;
+}
+
+/** 読み込み済みなら API、まだなら null（クリックの中など、待てないところで使う）。 */
+export function loaded(): Api | null {
+  return ready;
 }
 
 /** 読み込み済みの API（初回だけ読み込む）。 */

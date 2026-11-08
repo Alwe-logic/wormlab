@@ -32,6 +32,7 @@
 //! 木に展開した大きさは O(n³)、比較（head/body）は標準木のノード番号で
 //! メモするので判定は O(|A|·|B|) 時間（algorithms.md §1, §1c）。
 
+use crate::latex::ToLatex;
 use crate::headbody::CtCompare;
 use crate::letter::Letter;
 use crate::proof::{self, Builder, Calculus, FxBuild, Proof};
@@ -63,6 +64,12 @@ impl<L: Letter> fmt::Display for WSeq<L> {
     }
 }
 
+impl<L: Letter> ToLatex for WSeq<L> {
+    fn to_latex(&self) -> String {
+        format!("{} \\vdash {}", self.lhs.to_latex(), self.rhs.to_latex())
+    }
+}
+
 /// WC の規則。
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize)]
 pub enum WcRule {
@@ -85,6 +92,12 @@ impl fmt::Display for WcRule {
             WcRule::R3 => "R3",
         };
         write!(f, "{s}")
+    }
+}
+
+impl ToLatex for WcRule {
+    fn to_latex(&self) -> String {
+        crate::latex::rule_name(&self.to_string())
     }
 }
 

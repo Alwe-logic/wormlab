@@ -4,7 +4,7 @@
 //
 // claude.ai のページは <html><head><body> の骨組みを向こうが付けるので、こちらは中身だけを渡す。
 // そのために次のように書き換える。
-//   - <title> と本文（<body> の中身）と <script> だけを残す
+//   - <title> と本文（<body> の中身）と <script> と、Google Fonts の <link> だけを残す
 //   - CSS は <style> に埋め込む
 //   - "/_astro/…" という絶対パスを相対パス "assets/…" に直す（ページの置き場所に依らず読めるように。
 //     claude.ai は "_" で始まる名前を自分用に取っておくので、フォルダの名前も変える）
@@ -32,10 +32,15 @@ const trailing = html.split('</html>')[1] ?? '';
 
 const fixPaths = (s) => s.replaceAll('"/_astro/', '"assets/');
 
+// Google Fonts（claude.ai のページでも読める唯一の外部の CSS）の <link> はそのまま残す
+const head = html.match(/<head>([\s\S]*?)<\/head>/)?.[1] ?? '';
+const fontLinks = [...head.matchAll(/<link[^>]*fonts\.(googleapis|gstatic)\.com[^>]*>/g)].map((m) => m[0]);
+
 const page = [
   `<title>${title}</title>`,
   // 左右の余白を safe area に合わせて広げている（global.css の .wrap）ことを claude.ai に伝える
   '<meta name="claude:viewport-fit-sides" content="cover">',
+  ...fontLinks,
   `<style>\n${css}\n</style>`,
   fixPaths(body).trim(),
   fixPaths(trailing).trim(),

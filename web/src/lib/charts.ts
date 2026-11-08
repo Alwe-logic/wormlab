@@ -3,7 +3,9 @@
 import { h, hideTip, s, showTip } from './dom';
 
 /**
- * worm を棒の列で描く（左が外側＝先頭の文字）。高さ ∝ 値。
+ * worm を棒の列で描く（左が外側＝先頭の文字＝頭）。高さ ∝ 値。
+ * 棒はブロックを積んだ形（アーケードのドット絵）にし、先頭の棒には worm の目を付ける。
+ * worm が長くて棒が細いときは、ブロックに分けずにただの棒にする。
  * `labels` は棒ごとのツールチップの文字。
  */
 export function bars(container: HTMLElement, values: number[], labels: string[], maxValue: number): void {
@@ -23,20 +25,34 @@ export function bars(container: HTMLElement, values: number[], labels: string[],
   const gap = slot >= 6 ? 2 : 0;
   const bw = Math.max(1, slot - gap);
   const top = Math.max(1, maxValue);
-  const g = s('g');
+  const unit = (H - 10) / (top + 1); // 値 1 あたりの高さ（ブロック 1 個）
+  const blocky = bw >= 6 && unit >= 6; // ブロックに分けて描けるか
+  const g = s('g', { fill: 'var(--series-1)' });
+  // 光らせるのは棒が少ないときだけ（多いと重い）
+  if (n <= 200) g.setAttribute('style', 'filter: drop-shadow(0 0 3px rgba(57, 255, 20, 0.55))');
   values.forEach((v, i) => {
-    const bh = ((v + 1) / (top + 1)) * (H - 10);
     const x = i * slot;
-    const r = bw >= 8 ? 4 : 0;
-    // 上の角だけ丸めた棒
-    const d =
-      r > 0
-        ? `M ${x} ${H} V ${H - bh + r} Q ${x} ${H - bh} ${x + r} ${H - bh} H ${x + bw - r} Q ${x + bw} ${H - bh} ${x + bw} ${H - bh + r} V ${H} Z`
-        : `M ${x} ${H} V ${H - bh} H ${x + bw} V ${H} Z`;
-    const p = s('path', { d, fill: 'var(--series-1)' });
-    g.append(p);
+    if (blocky) {
+      for (let k = 0; k <= v; k++) {
+        const y = H - (k + 1) * unit;
+        g.append(s('rect', { x, y: y + 1, width: bw, height: unit - 2 }));
+      }
+    } else {
+      const bh = (v + 1) * unit;
+      g.append(s('rect', { x, y: H - bh, width: bw, height: bh }));
+    }
   });
   svg.append(g);
+  // 頭（先頭の棒）の目と口
+  const v0 = values[0];
+  if (bw >= 10) {
+    const yTop = H - (v0 + 1) * unit;
+    const e = Math.max(3, Math.round(bw / 7));
+    svg.append(
+      s('rect', { x: Math.round(bw * 0.25), y: yTop + e + 2, width: e, height: e, fill: '#000' }),
+      s('rect', { x: Math.round(bw * 0.6), y: yTop + e + 2, width: e, height: e, fill: '#000' }),
+    );
+  }
   // ツールチップ（棒より広い当たり判定：x 座標から一番近い棒）
   const hit = s('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent' });
   hit.addEventListener('mousemove', (e) => {
@@ -77,11 +93,19 @@ export function lengthChart(container: HTMLElement, lengths: number[], current: 
     s('text', { x: W - pad.r, y: H - 4, 'font-size': 11, fill: 'var(--text-muted)', 'text-anchor': 'end' }, `${n - 1}`),
   );
   const d = lengths.map((v, i) => `${i ? 'L' : 'M'} ${xs(i)} ${ys(v)}`).join(' ');
-  svg.append(s('path', { d, fill: 'none', stroke: 'var(--series-1)', 'stroke-width': 2 }));
+  svg.append(
+    s('path', {
+      d,
+      fill: 'none',
+      stroke: 'var(--series-1)',
+      'stroke-width': 2,
+      style: 'filter: drop-shadow(0 0 3px rgba(57, 255, 20, 0.6))',
+    }),
+  );
   const cross = s('line', { y1: pad.t, y2: H - pad.b, stroke: 'var(--axis)', 'stroke-width': 1, visibility: 'hidden' });
   svg.append(cross);
   svg.append(
-    s('circle', { cx: xs(current), cy: ys(lengths[current] ?? 0), r: 5, fill: 'var(--series-1)', stroke: 'var(--surface-1)', 'stroke-width': 2 }),
+    s('circle', { cx: xs(current), cy: ys(lengths[current] ?? 0), r: 6, fill: 'var(--accent)', stroke: '#000', 'stroke-width': 2 }),
   );
   const hit = s('rect', { x: pad.l, y: 0, width: W - pad.l - pad.r, height: H, fill: 'transparent', style: 'cursor:pointer' });
   const pick = (e: MouseEvent) => {

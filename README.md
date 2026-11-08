@@ -76,6 +76,26 @@ cargo doc --open                              # ドキュメントをブラウ�
 worm `n1 n2 … nk` は式 ⟨n1⟩⟨n2⟩…⟨nk⟩⊤ を表す（左端が一番外側）。
 入力は `"1 0 2"`, `"<1><0><2>T"`, `"⟨1⟩⟨0⟩⟨2⟩⊤"` のどれでもよい。
 
+### LaTeX で出す
+
+ほとんどの命令に `--latex` を付けると、結果を LaTeX で出す（論文にそのまま貼れる断片）。
+`--standalone` を付けるとプリアンブルつきの文書になり、そのまま pdflatex にかけられる。
+
+```sh
+cargo run -q -- rc "<1>p & <0>q |- <1>(p & <0>q)" --latex      # 証明木（bussproofs）と行番号つきの一覧
+cargo run -q -- bc "((()))p |- ()(())p" --standalone > bc.tex && pdflatex bc.tex
+cargo run -q -- rc "<0>p |- <1>p" --latex --rel=all            # 反例モデルを TikZ で（閉包後の辺も）
+cargo run -q -- bimodel "<2>_2 <2>_3 T" --latex --rel=11,down  # M_A を TikZ で（R¹₁ と R↓ の辺も）
+cargo run -q -- ordinal "φ(ε_0, 0)" --latex                    # 書き換え・基本列を align* で
+cargo run -q -- battle "2 0 2" 10 --latex                      # battle の表
+```
+
+- 証明：bussproofs の証明木（木に展開して 120 ノードまで）と、行番号つきの一覧（共有した部分は 1 回だけ）
+- モデル：TikZ（Web の図と同じ配置）。`--rel=all` で閉包後の辺も、`--rel=11,down` のように関係を選んでも描ける
+  （名前は記号を省いて書く：R¹₁ → `11`、R²₂ → `22`、R↓ → `down`、R∇ → `nabla`、RC の R_1 → `1`）
+- 使うパッケージは amsmath・amssymb・bussproofs・tikz（`--standalone` のプリアンブルに入っている）
+- `table`・`lt`・`thm52`・`hardy`・`blen` は対象外
+
 ## ロードマップ
 
 - [x] P0: 順序数 (< ε0)、worm の順序数・標準形・worm battle

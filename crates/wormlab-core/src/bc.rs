@@ -46,6 +46,7 @@
 //!   副条件に出てくるモダリティは a, b の文字と ⊤ だけで、入れ子が必ず浅くなるので止まる。
 //!   正規形でないモダリティ (a) は、副条件 a ⊢ nf(a) を使って正規形 (nf(a)) と行き来する。
 
+use crate::latex::ToLatex;
 use crate::bracket::{Bracket, NfBracket};
 use crate::proof::{self, Builder, Calculus, Proof};
 use crate::rc;
@@ -188,6 +189,28 @@ impl fmt::Display for Formula {
                     Formula::Top => Ok(()),
                     Formula::And(..) => write!(f, "({a})"),
                     _ => write!(f, "{a}"),
+                }
+            }
+        }
+    }
+}
+
+impl ToLatex for Formula {
+    /// 論文の書き方 (a)φ のまま。`((()))p \land ()q` のように書く。
+    fn to_latex(&self) -> String {
+        match self {
+            Formula::Top => "\\top".to_string(),
+            Formula::Var(p) => crate::latex::var(p),
+            Formula::And(a, b) => match **b {
+                Formula::And(..) => format!("{} \\land ({})", a.to_latex(), b.to_latex()),
+                _ => format!("{} \\land {}", a.to_latex(), b.to_latex()),
+            },
+            Formula::Dia(m, a) => {
+                let head = modality(m);
+                match **a {
+                    Formula::Top => head,
+                    Formula::And(..) => format!("{head}({})", a.to_latex()),
+                    _ => format!("{head}{}", a.to_latex()),
                 }
             }
         }
@@ -419,6 +442,12 @@ impl fmt::Display for BSeq {
     }
 }
 
+impl ToLatex for BSeq {
+    fn to_latex(&self) -> String {
+        format!("{} \\vdash {}", self.lhs.to_latex(), self.rhs.to_latex())
+    }
+}
+
 /// `"φ |- ψ"` または `"φ ⊢ ψ"` を読む。
 impl FromStr for BSeq {
     type Err = ParseError;
@@ -461,6 +490,12 @@ impl fmt::Display for BcRule {
             BcRule::R4 => "R4",
         };
         write!(f, "{s}")
+    }
+}
+
+impl ToLatex for BcRule {
+    fn to_latex(&self) -> String {
+        crate::latex::rule_name(&self.to_string())
     }
 }
 

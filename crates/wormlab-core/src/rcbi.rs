@@ -17,6 +17,7 @@
 //! M_A の作り方は [`Model::of`] を参照。RC の標準木の閉包（[`crate::rc`]）と同じ発想だが、
 //! フレーム条件の一部が「点の存在」を要求するので、閉包の前に点を足しておく。
 
+use crate::latex::ToLatex;
 use crate::bitset::BitSet;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -217,6 +218,39 @@ impl fmt::Display for Formula {
                 write!(f, "∇")?;
                 operand(f, a)
             }
+        }
+    }
+}
+
+impl ToLatex for Rank {
+    /// 添字：有限なら数字、ω なら `\omega`。
+    fn to_latex(&self) -> String {
+        match self {
+            Rank::Fin(n) => n.to_string(),
+            Rank::Omega => "\\omega".to_string(),
+        }
+    }
+}
+
+impl ToLatex for Formula {
+    /// `\langle 1\rangle_{2}`、`\langle 2\rangle_{3}`、`{\downarrow}`、`\nabla` で書く（表示と同じ括弧の付け方）。
+    fn to_latex(&self) -> String {
+        fn operand(a: &Formula) -> String {
+            match a {
+                Formula::And(..) => format!("({})", a.to_latex()),
+                _ => a.to_latex(),
+            }
+        }
+        match self {
+            Formula::Top => "\\top".to_string(),
+            Formula::Var(p) => crate::latex::var(p),
+            Formula::And(a, b) => match **b {
+                Formula::And(..) => format!("{} \\land ({})", a.to_latex(), b.to_latex()),
+                _ => format!("{} \\land {}", a.to_latex(), b.to_latex()),
+            },
+            Formula::Dia(i, r, a) => format!("\\langle {i}\\rangle_{{{}}} {}", r.to_latex(), operand(a)),
+            Formula::Down(a) => format!("{{\\downarrow}} {}", operand(a)),
+            Formula::Nabla(a) => format!("\\nabla {}", operand(a)),
         }
     }
 }
@@ -427,6 +461,12 @@ pub struct Sequent {
 impl fmt::Display for Sequent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ⊢ {}", self.lhs, self.rhs)
+    }
+}
+
+impl ToLatex for Sequent {
+    fn to_latex(&self) -> String {
+        format!("{} \\vdash {}", self.lhs.to_latex(), self.rhs.to_latex())
     }
 }
 
@@ -825,6 +865,21 @@ impl Model {
                 (x, name, y)
             })
             .collect()
+    }
+
+    /// [`Model::relations`] と同じ順の、関係の名前の LaTeX（`R^{1}_{2}`、`R_{\downarrow}` など）。
+    pub fn relation_latex_names(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for k in 1..=self.n_fin {
+            out.push(format!("R^{{1}}_{{{k}}}"));
+        }
+        out.push("R^{1}_{\\omega}".to_string());
+        for k in 2..=self.n_fin {
+            out.push(format!("R^{{2}}_{{{k}}}"));
+        }
+        out.push("R_{\\downarrow}".to_string());
+        out.push("R_{\\nabla}".to_string());
+        out
     }
 
     /// 持っているすべての関係（名前と行の組）。表示とフレーム条件の検査に使う。

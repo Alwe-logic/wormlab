@@ -28,6 +28,11 @@
 //!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
 //!
 //! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
+//!
+//! LaTeX：--latex を付けると結果を LaTeX で出す（論文にそのまま貼れる断片）。--standalone なら
+//! プリアンブルつきの文書（pdflatex にかけられる）。証明は bussproofs の証明木と行番号つきの一覧、
+//! 反例モデル・M_A は TikZ（--rel=all で閉包後の辺も、--rel=1,down のように関係を選んでも描ける）。
+//!   例：wormlab rc "<1>p & <0>q |- <1>(p & <0>q)" --latex --standalone > proof.tex && pdflatex proof.tex
 
 use serde_json::json;
 use std::cmp::Ordering;
@@ -36,7 +41,81 @@ use std::process::ExitCode;
 use wormlab_core::wc::{self, WcProof};
 use wormlab_core::hierarchy::{self, Budget};
 use wormlab_core::bc::{self, BSeq};
+use wormlab_core::latex::{self, BattleRow, ToLatex};
+use wormlab_core::modelview::ModelView;
+use wormlab_core::proof::Proof;
 use wormlab_core::{Bracket, Letter, Sequent, Veblen, Worm, headbody, rc, rcbi, rcbi_order, rcproof};
+
+/// --latex・--standalone・--rel の指定。
+struct Tex {
+    standalone: bool,
+    rel: Option<String>,
+}
+
+impl Tex {
+    /// 部品を空行で区切って出す（--standalone なら文書に包む）。
+    fn emit(&self, parts: Vec<String>) {
+        let body = parts.join("\n\n");
+        if self.standalone {
+            print!("{}", latex::document(&body));
+        } else {
+            println!("{body}");
+        }
+    }
+
+    /// TikZ に描く関係（--rel の指定）。名前は記号を省いて比べる（"R¹₁" は "11"、"R↓" は "down"）。
+    fn rels(&self, v: &ModelView) -> Vec<String> {
+        let key = |s: &str| -> String {
+            s.chars()
+                .filter_map(|c| match c {
+                    'R' | '_' | '^' | ' ' => None,
+                    '¹' => Some("1".to_string()),
+                    '²' => Some("2".to_string()),
+                    '₀'..='₉' => Some(char::from(b'0' + (c as u32 - '₀' as u32) as u8).to_string()),
+                    '↓' => Some("down".to_string()),
+                    '∇' => Some("nabla".to_string()),
+                    'ω' => Some("w".to_string()),
+                    _ => Some(c.to_string()),
+                })
+                .collect()
+        };
+        match self.rel.as_deref() {
+            None => Vec::new(),
+            Some("all") => v.relations.iter().map(|r| r.name.clone()).collect(),
+            Some(list) => {
+                let wanted: Vec<String> = list.split(',').map(|s| key(s.trim())).collect();
+                v.relations.iter().filter(|r| wanted.contains(&key(&r.name))).map(|r| r.name.clone()).collect()
+            }
+        }
+    }
+
+    fn model(&self, v: &ModelView) -> String {
+        v.tikz(&self.rels(v), true)
+    }
+}
+
+/// 検査済みの証明を LaTeX の部品にする：結論、証明木（小さければ）、行番号つきの一覧。
+fn proof_tex<J: ToLatex, R: ToLatex>(system: &str, verdict: &str, p: &Proof<J, R>) -> Vec<String> {
+    let mut parts = vec![
+        format!(
+            "% {system}: checked derivation (DAG {} nodes, {} nodes as a tree, height {})",
+            p.dag_size(),
+            p.tree_size(),
+            p.height()
+        ),
+        latex::display(verdict),
+    ];
+    match latex::proof_tree(p, latex::TREE_LIMIT) {
+        Some(t) => parts.push(t),
+        None => parts.push(format!(
+            "% proof tree omitted: {} nodes as a tree (limit {}); see the numbered lines below",
+            p.tree_size(),
+            latex::TREE_LIMIT
+        )),
+    }
+    parts.push(latex::proof_lines(p));
+    parts
+}
 
 fn parse_ordinal(s: &str) -> Result<Veblen, String> {
     s.parse::<Veblen>().map_err(|e| e.to_string())
@@ -73,8 +152,12 @@ fn all_nat(xs: &[&String]) -> bool {
 ///
 /// 【Rust メモ】`<L: Letter>` を付けると、自然数の worm の証明にも
 /// 順序数の worm の証明にも使える 1 つの関数になる。
-fn show_proof<L: Letter>(p: &WcProof<L>, json: bool) -> Result<(), String> {
+fn show_proof<L: Letter>(p: &WcProof<L>, json: bool, tex: Option<&Tex>) -> Result<(), String> {
     let concl = wc::check(p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
+    if let Some(t) = tex {
+        t.emit(proof_tex("WC", &concl.to_latex(), p));
+        return Ok(());
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(p).map_err(|e| e.to_string())?);
     } else {
@@ -86,10 +169,19 @@ fn show_proof<L: Letter>(p: &WcProof<L>, json: bool) -> Result<(), String> {
 }
 
 /// RC の判定と導出（モダリティは自然数でも順序数でもよい）。
-fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<(), String> {
+fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool, tex: Option<&Tex>) -> Result<(), String> {
     if !rc::entails(&seq.lhs, &seq.rhs) {
         // 反例を見せるときだけ閉包モデルを作る
         let d = rc::decide(&seq.lhs, &seq.rhs);
+        if let Some(t) = tex {
+            let view = ModelView::from_rc(&d.model, Some(&seq.rhs));
+            t.emit(vec![
+                "% RC: not derivable; counter-model (the right-hand side fails at the root 0)".to_string(),
+                latex::display(&latex::verdict(&seq.lhs.to_latex(), &seq.rhs.to_latex(), false)),
+                t.model(&view),
+            ]);
+            return Ok(());
+        }
         println!("RC ⊬ {}", d.sequent);
         println!("反例：左辺の閉包モデルの根 0 で右辺が偽");
         print!("{}", d.model);
@@ -97,6 +189,10 @@ fn rc_cmd<L: Letter>(seq: Sequent<L>, show_proof: bool, json: bool) -> Result<()
     }
     let (p, st) = rcproof::derive(&seq.lhs, &seq.rhs)?;
     rcproof::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
+    if let Some(t) = tex {
+        t.emit(proof_tex("RC", &seq.to_latex(), &p));
+        return Ok(());
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?);
         return Ok(());
@@ -135,13 +231,23 @@ fn sym(o: Option<Ordering>) -> &'static str {
 
 /// Bracket Calculus の判定と導出。判定・導出・検査はすべて順序数を使わない。
 /// 最後に τ（括弧語 → 順序数）で RC_Γ0 に翻訳した判定とも照らし合わせる（Thm 38）。
-fn bc_cmd(goal: &BSeq, show_proof: bool, json: bool) -> Result<(), String> {
+fn bc_cmd(goal: &BSeq, show_proof: bool, json: bool, tex: Option<&Tex>) -> Result<(), String> {
     let holds = bc::decide(&goal.lhs, &goal.rhs);
     let tau = goal.tau();
     if holds != bc::decide_tau(&goal.lhs, &goal.rhs) {
         return Err(format!("BC と RC_Γ0 の判定が食い違いました（バグです）: {goal}"));
     }
     if !holds {
+        if let Some(t) = tex {
+            let d = rc::decide(&goal.lhs.to_rc(), &goal.rhs.to_rc());
+            let view = ModelView::from_rc(&d.model, Some(&goal.rhs.to_rc()));
+            t.emit(vec![
+                "% BC: not derivable; counter-model (letters are normal bracket words)".to_string(),
+                latex::display(&latex::verdict(&goal.lhs.to_latex(), &goal.rhs.to_latex(), false)),
+                t.model(&view),
+            ]);
+            return Ok(());
+        }
         println!("BC ⊬ {goal}");
         println!("  τ で翻訳：RC_Γ0 ⊬ {} ⊢ {}", tau.lhs, tau.rhs);
         let d = rc::decide(&goal.lhs.to_rc(), &goal.rhs.to_rc());
@@ -151,6 +257,10 @@ fn bc_cmd(goal: &BSeq, show_proof: bool, json: bool) -> Result<(), String> {
     }
     let (p, st) = bc::derive(&goal.lhs, &goal.rhs)?;
     bc::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
+    if let Some(t) = tex {
+        t.emit(proof_tex("BC", &goal.to_latex(), &p));
+        return Ok(());
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?);
         return Ok(());
@@ -174,18 +284,45 @@ fn bc_cmd(goal: &BSeq, show_proof: bool, json: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// worm の比較を LaTeX に：`A <_{0} B`（下に順序数も）。
+fn worm_cmp_tex(a: &str, o: Ordering, b: &str, oa: &str, ob: &str) -> String {
+    let (rel, orel) = match o {
+        Ordering::Less => ("<_{0}", "<"),
+        Ordering::Equal => ("\\equiv", "="),
+        Ordering::Greater => (">_{0}", ">"),
+    };
+    latex::align(&[
+        (a.to_string(), format!("{rel} {b}")),
+        (format!("o({a})"), format!("= {oa} {orel} {ob} = o({b})")),
+    ])
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let json = args.iter().any(|a| a == "--json");
     let full_proof = args.iter().any(|a| a == "--proof");
     let show_model = args.iter().any(|a| a == "--model");
+    let standalone = args.iter().any(|a| a == "--standalone");
+    let rel = args.iter().find_map(|a| a.strip_prefix("--rel=").map(|s| s.to_string()));
+    let tex = (args.iter().any(|a| a == "--latex") || standalone).then_some(Tex { standalone, rel });
+    let tex = tex.as_ref();
+    let flags = ["--json", "--proof", "--model", "--latex", "--standalone"];
     let args: Vec<String> =
-        args.iter().filter(|a| *a != "--json" && *a != "--proof" && *a != "--model").cloned().collect();
+        args.iter().filter(|a| !flags.contains(&a.as_str()) && !a.starts_with("--rel=")).cloned().collect();
     let args = args.as_slice();
+    // --latex に対応していない命令
+    let no_latex = ["table", "lt", "thm52", "hardy", "blen"];
+    if let Some(cmd) = args.first().filter(|c| tex.is_some() && no_latex.contains(&c.as_str())) {
+        return Err(format!("{cmd} は --latex に対応していません"));
+    }
     // 【Rust メモ】スライスに対するパターンマッチで引数の形を場合分けできる
     match args {
         [cmd, a] if cmd == "ord" && !all_nat(&[a]) => {
             // 文字が順序数の worm：o(A) < Γ0、標準形、Ω_ξ（ξ = 0, 1, 2 と A に現れる文字）
             let w = parse_o(a)?;
+            if let Some(t) = tex {
+                t.emit(vec![latex::ordinal_block(Some(&format!("o({})", w.to_latex())), &w.ordinal(), 6)]);
+                return Ok(());
+            }
             let mut xis: Vec<Veblen> = (0..3).map(Veblen::nat).collect();
             xis.extend(w.letters().iter().cloned());
             xis.sort();
@@ -215,6 +352,11 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         [cmd, a] if cmd == "ord" => {
             let w = parse(a)?;
+            if let Some(t) = tex {
+                let o = Veblen::from(&w.ordinal());
+                t.emit(vec![latex::ordinal_block(Some(&format!("o({})", w.to_latex())), &o, 6)]);
+                return Ok(());
+            }
             let k = w.letters().iter().max().map_or(0, |m| m + 1);
             let pis = w.pi_ordinals(k);
             if json {
@@ -271,6 +413,10 @@ fn run(args: &[String]) -> Result<(), String> {
             let by_hb = (hb.lt(x.letters(), y.letters()), hb.lt(y.letters(), x.letters()));
             let by_rc = (x.lt_n(&y, Veblen::zero()), y.lt_n(&x, Veblen::zero()));
             let agree = by_hb == by_o && by_rc == by_o;
+            if let Some(t) = tex {
+                t.emit(vec![worm_cmp_tex(&x.to_latex(), x.cmp0(&y), &y.to_latex(), &x.ordinal().to_latex(), &y.ordinal().to_latex())]);
+                return Ok(());
+            }
             if json {
                 let v = json!({
                     "a": x, "b": y, "relation": rel,
@@ -298,6 +444,10 @@ fn run(args: &[String]) -> Result<(), String> {
             let by_hb = (hb.lt(x.letters(), y.letters()), hb.lt(y.letters(), x.letters()));
             let by_o = (x.cmp0(&y) == Ordering::Less, y.cmp0(&x) == Ordering::Less);
             let agree = by_rc == by_o && by_hb == by_o;
+            if let Some(t) = tex {
+                t.emit(vec![worm_cmp_tex(&x.to_latex(), x.cmp0(&y), &y.to_latex(), &x.ordinal().to_latex(), &y.ordinal().to_latex())]);
+                return Ok(());
+            }
             if json {
                 let v = json!({
                     "a": x, "b": y, "relation": rel,
@@ -318,6 +468,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => 30,
             };
             let w = parse(a)?;
+            if let Some(t) = tex {
+                let all: Vec<Worm> = w.battle().take(limit + 2).collect();
+                let more = all.len() > limit + 1;
+                let rows: Vec<BattleRow> = all
+                    .iter()
+                    .take(limit + 1)
+                    .map(|c| BattleRow { formula: c.to_latex(), ordinal: Some(c.ordinal().to_latex()) })
+                    .collect();
+                t.emit(vec![latex::battle_table(&rows, "A", Some("o(A_{k})"), more)]);
+                return Ok(());
+            }
             let mut steps = 0;
             for (i, cur) in w.battle().take(limit + 1).enumerate() {
                 let shown = if cur.len() > 60 {
@@ -334,10 +495,10 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         [cmd, s] if cmd == "rc" => match s.parse::<Sequent>() {
-            Ok(seq) => rc_cmd(seq, full_proof, json),
+            Ok(seq) => rc_cmd(seq, full_proof, json, tex),
             // 自然数で読めなければ、モダリティが順序数のシーケントとして読む
             Err(e) => match s.parse::<Sequent<Veblen>>() {
-                Ok(seq) => rc_cmd(seq, full_proof, json),
+                Ok(seq) => rc_cmd(seq, full_proof, json, tex),
                 Err(_) => Err(e.to_string()),
             },
         },
@@ -362,21 +523,25 @@ fn run(args: &[String]) -> Result<(), String> {
                 .ok_or("'⊢' または '|-' が必要です")?;
             let (l, r) = (l.to_string(), r.to_string());
             if all_nat(&[&l, &r]) {
-                show_proof(&wc::prove(&parse(&l)?, &parse(&r)?)?, json)
+                show_proof(&wc::prove(&parse(&l)?, &parse(&r)?)?, json, tex)
             } else {
-                show_proof(&wc::prove(&parse_o(&l)?, &parse_o(&r)?)?, json)
+                show_proof(&wc::prove(&parse_o(&l)?, &parse_o(&r)?)?, json, tex)
             }
         }
         [cmd, n, a, b] if cmd == "wclt" => {
             if let (Ok(k), true) = (n.parse::<u32>(), all_nat(&[a, b])) {
-                show_proof(&wc::prove_lt(k, &parse(a)?, &parse(b)?)?, json)
+                show_proof(&wc::prove_lt(k, &parse(a)?, &parse(b)?)?, json, tex)
             } else {
                 let k: Veblen = n.parse().map_err(|_| format!("n が順序数として読めません: {n}"))?;
-                show_proof(&wc::prove_lt(k, &parse_o(a)?, &parse_o(b)?)?, json)
+                show_proof(&wc::prove_lt(k, &parse_o(a)?, &parse_o(b)?)?, json, tex)
             }
         }
         [cmd, a] if cmd == "ordinal" => {
             let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+            if let Some(t) = tex {
+                t.emit(vec![latex::ordinal_block(None, &x, 6)]);
+                return Ok(());
+            }
             let kind = if x.is_zero() {
                 "0"
             } else if x.is_successor() {
@@ -412,11 +577,19 @@ fn run(args: &[String]) -> Result<(), String> {
                 Ordering::Equal => "=",
                 Ordering::Greater => ">",
             };
+            if let Some(t) = tex {
+                t.emit(vec![latex::display(&latex::relation(&x.to_latex(), rel, &y.to_latex()))]);
+                return Ok(());
+            }
             println!("{x}  {rel}  {y}");
             Ok(())
         }
         [cmd, a] if cmd == "bracket" => {
             let x = parse_bracket(a)?;
+            if let Some(t) = tex {
+                t.emit(vec![latex::ordinal_block(Some(&format!("o^{{*}}({})", x.to_latex())), &x.ordinal(), 6)]);
+                return Ok(());
+            }
             let nf = x.normal_form();
             if json {
                 let v = json!({
@@ -448,6 +621,17 @@ fn run(args: &[String]) -> Result<(), String> {
             };
             let syn = x.cmp_syntactic(&y);
             let (ox, oy) = (x.ordinal(), y.ordinal());
+            if let Some(t) = tex {
+                let l = format!("o^{{*}}({})", x.to_latex());
+                let r = format!("o^{{*}}({})", y.to_latex());
+                t.emit(vec![latex::display(&format!(
+                    "{l} = {} {} {} = {r}",
+                    ox.to_latex(),
+                    sym(syn),
+                    oy.to_latex()
+                ))]);
+                return Ok(());
+            }
             println!("{x}  {}  {y}    （順序数を使わない比較）", sym(syn));
             println!("o* = {ox}  {}  {oy}    （Veblen 表記を経由した比較{}）",
                 sym(ox.cmp(&oy)), if ox.cmp(&oy) == syn { "、一致" } else { "、不一致：バグです" });
@@ -458,6 +642,18 @@ fn run(args: &[String]) -> Result<(), String> {
             let q: rcbi::Sequent = s.parse().map_err(|e: rcbi::ParseError| e.to_string())?;
             let d = rcbi::decide(&q.lhs, &q.rhs)?;
             let m = &d.model;
+            if let Some(t) = tex {
+                let view = ModelView::from_rcbi(m, Some(&q.rhs));
+                t.emit(vec![
+                    format!(
+                        "% RC_BI: {}; finite model M_A of the left-hand side (bold: the right-hand side holds)",
+                        if d.holds { "derivable" } else { "not derivable" }
+                    ),
+                    latex::display(&latex::verdict(&q.lhs.to_latex(), &q.rhs.to_latex(), d.holds)),
+                    t.model(&view),
+                ]);
+                return Ok(());
+            }
             if d.holds {
                 println!("RC_BIω ⊢ {}", d.sequent);
             } else {
@@ -478,6 +674,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 return Err("M_A を作れるのは変数を含まない式だけです".to_string());
             }
             let m = rcbi::Model::of(&a, a.max_rank());
+            if let Some(t) = tex {
+                t.emit(vec![format!("% M_A for A = {}", a.to_latex()), t.model(&ModelView::from_rcbi(&m, None))]);
+                return Ok(());
+            }
             println!("A = {a}");
             print!("{m}");
             let v = m.frame_violations();
@@ -493,6 +693,11 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         [cmd, a, b] if cmd == "bicmp" => {
             let (x, y) = (parse_wbi(a)?, parse_wbi(b)?);
+            if let Some(t) = tex {
+                let o = rcbi_order::compare(&x, &y).ok_or("比較できません（Thm 4.11 に反する）")?;
+                t.emit(vec![latex::display(&latex::rcbi_relation(&x.to_latex(), o, &y.to_latex()))]);
+                return Ok(());
+            }
             println!("{x}  {}  {y}", sym(rcbi_order::compare(&x, &y)));
             Ok(())
         }
@@ -502,6 +707,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 Some(s) => s.parse().map_err(|_| format!("k が数値ではありません: {s}"))?,
                 None => 4,
             };
+            if let Some(t) = tex {
+                t.emit(vec![latex::rcbi_form(&x, k)?]);
+                return Ok(());
+            }
             match rcbi_order::form(&x)? {
                 rcbi_order::Form::Zero => println!("{x} は零（⊤ と ≡¹₁、o = 0）"),
                 rcbi_order::Form::Successor(p) => {
@@ -531,6 +740,14 @@ fn run(args: &[String]) -> Result<(), String> {
                 Some(s) => s.parse().map_err(|_| format!("上限が数値ではありません: {s}"))?,
                 None => 30,
             };
+            if let Some(t) = tex {
+                let all: Vec<rcbi::Formula> = rcbi_order::battle(&x).take(limit + 2).collect();
+                let more = all.len() > limit + 1;
+                let rows: Vec<BattleRow> =
+                    all.iter().take(limit + 1).map(|c| BattleRow { formula: c.to_latex(), ordinal: None }).collect();
+                t.emit(vec![latex::battle_table(&rows, "A", None, more)]);
+                return Ok(());
+            }
             let mut steps = 0;
             for (i, cur) in rcbi_order::battle(&x).take(limit + 1).enumerate() {
                 println!("{i:>4}: {}", shorten(cur.to_string(), 100));
@@ -543,11 +760,15 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         [cmd, s] if cmd == "bc" => {
             let goal: BSeq = s.parse().map_err(|e: bc::ParseError| e.to_string())?;
-            bc_cmd(&goal, full_proof, json)
+            bc_cmd(&goal, full_proof, json, tex)
         }
         [cmd, a] if cmd == "bracketof" => {
             let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
             let w = Bracket::from_ordinal(&x);
+            if let Some(t) = tex {
+                t.emit(vec![latex::display(&format!("{} = o^{{*}}({})", x.to_latex(), w.to_latex()))]);
+                return Ok(());
+            }
             println!("{x}  =  {w}");
             Ok(())
         }
@@ -557,6 +778,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => 30,
             };
             let x = parse_bracket(a)?;
+            if let Some(t) = tex {
+                let all: Vec<Bracket> = x.battle().take(limit + 2).collect();
+                let more = all.len() > limit + 1;
+                let rows: Vec<BattleRow> = all
+                    .iter()
+                    .take(limit + 1)
+                    .map(|c| BattleRow { formula: c.to_latex(), ordinal: Some(c.ordinal().to_latex()) })
+                    .collect();
+                t.emit(vec![latex::battle_table(&rows, "a", Some("o^{*}(a_{k})"), more)]);
+                return Ok(());
+            }
             let mut steps = 0;
             for (i, cur) in x.battle().take(limit + 1).enumerate() {
                 println!("{i:>4}: {}    o* = {}", shorten(cur.to_string(), 60), cur.ordinal());
@@ -582,6 +814,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 Some(s) => s.parse().map_err(|_| format!("k が数値ではありません: {s}"))?,
                 None => 5,
             };
+            if let Some(t) = tex {
+                t.emit(vec![latex::ordinal_block(None, &x, k + 1)]);
+                return Ok(());
+            }
             if !x.is_limit() {
                 println!("{x} は極限順序数ではありません（後続なら α[n] は直前の数）");
                 return Ok(());
@@ -644,7 +880,11 @@ worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
 順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）
 括弧語の書き方: \"()\" = 1, \"(())\" = ω, \"((()))\" = ε_0（⊤ は省略）
 BC の式: \"(a)φ\"（a は括弧語）。例 \"((()))p\" = ⟨ω⟩p、\"(())(p & ()q)\"。括弧語はそのまま式として読む
-RC_BI の式: <1>_2 = ⟨1⟩₂、<2>_3 = ⟨2⟩₃、<1>_w = ⟨1⟩_ω、D = ↓、N = ∇、T = ⊤（<1>, <2> だけなら ⟨1⟩₁, ⟨2⟩₂）";
+RC_BI の式: <1>_2 = ⟨1⟩₂、<2>_3 = ⟨2⟩₃、<1>_w = ⟨1⟩_ω、D = ↓、N = ∇、T = ⊤（<1>, <2> だけなら ⟨1⟩₁, ⟨2⟩₂）
+LaTeX: --latex で LaTeX の断片、--standalone でプリアンブルつきの文書（pdflatex にかけられる）
+  証明は bussproofs の証明木（木で 120 ノードまで）と行番号つきの一覧、モデルは TikZ
+  --rel=all で閉包後の辺も描く。--rel=1,down のように関係を選べる（R¹₁ → 11、R↓ → down、RC の R_1 → 1）
+  table・lt・thm52・hardy・blen は対象外";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

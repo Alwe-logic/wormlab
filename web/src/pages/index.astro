@@ -16,12 +16,25 @@ const tabs = [
 <Base title="wormlab">
   <header class="site">
     <div class="wrap">
-      <h1>wormlab</h1>
-      <span class="sub">Beklemishev の worm・反射計算・順序数を、ブラウザの中で計算する</span>
+      <div class="marquee">
+        <!-- ロゴの worm は ⟨2⟩⟨0⟩⟨2⟩⊤（左が頭＝いちばん外側の文字） -->
+        <span class="worm-logo" aria-hidden="true">
+          <span class="seg head"></span><span class="seg">2</span><span class="seg">0</span><span class="seg">2</span><span class="seg tail">⊤</span>
+        </span>
+        <div class="title">
+          <h1>WORMLAB</h1>
+          <span class="sub">Beklemishev の worm・反射計算・順序数を、ブラウザの中で計算する</span>
+        </div>
+        <div class="hiscore" title="このサイトで扱ういちばん大きい順序数（RC_BI で届く Bachmann–Howard 順序数）">
+          <span class="label">HI-ORDINAL</span>
+          <span class="value">ψ(ε<sub>Ω+1</sub>)</span>
+        </div>
+      </div>
       <nav class="tabs" aria-label="道具">
         {tabs.map((t) => <a href={`#${t.id}`} data-tab={t.id}>{t.label}</a>)}
       </nav>
     </div>
+    <div class="wrap"><div class="pellets" aria-hidden="true"></div></div>
   </header>
   <main class="wrap">
     <Battle />
@@ -31,9 +44,11 @@ const tabs = [
   </main>
   <footer>
     <div class="wrap">
+      <div class="pellets" aria-hidden="true"></div>
       計算はすべてこのブラウザの中で、Rust で書いた wormlab-core（WebAssembly 版 <span id="version">…</span>）が行います。
       参考文献：Beklemishev（RC）、de Almeida Borges–Joosten（WC）、Fernández-Duque–Hermo Reyes（括弧語・BC）、
       Pakhomov–Lazar（RC_BI, arXiv:2610.20115）。
+      <div class="credit">EVERY WORM REACHES ⊤ — BUT PA CAN'T PROVE IT</div>
     </div>
   </footer>
 </Base>

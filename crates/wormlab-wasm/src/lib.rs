@@ -16,8 +16,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use wasm_bindgen::prelude::*;
 use wormlab_core::bc::{self, BSeq};
-use wormlab_core::bitset::BitSet;
 use wormlab_core::hierarchy::{self, Budget};
+use wormlab_core::latex::{self, BattleRow, ToLatex};
+use wormlab_core::modelview::ModelView;
 use wormlab_core::proof::Proof;
 use wormlab_core::rcbi::{self, Formula};
 use wormlab_core::{Bracket, Letter, Sequent, Spf, Veblen, Worm, rc, rcbi_order, rcproof, wc};
@@ -66,6 +67,16 @@ fn parse_input(kind: &str, s: &str) -> Result<Input, String> {
 }
 
 impl Input {
+    /// 入力の式を LaTeX で（worm は o(…)、括弧語は o^*(…)、順序数そのものは None）。
+    fn tex_expr(&self) -> Option<String> {
+        match self {
+            Input::Ordinal(_) => None,
+            Input::Worm(w) => Some(format!("o({})", w.to_latex())),
+            Input::OWorm(w) => Some(format!("o({})", w.to_latex())),
+            Input::Bracket(b) => Some(format!("o^{{*}}({})", b.to_latex())),
+        }
+    }
+
     fn ordinal(&self) -> Veblen {
         match self {
             Input::Ordinal(a) => a.clone(),
@@ -128,7 +139,9 @@ fn ordinal_info_impl(kind: &str, input: &str) -> Result<Value, String> {
         }
     }
     let bracket = Bracket::from_ordinal(&a);
+    let input_tex = x.tex_expr();
     Ok(json!({
+        "latex": latex::ordinal_block(input_tex.as_deref(), &a, 6),
         "input": input_view,
         "ordinal": a.to_string(),
         "is_zero": a.is_zero(),
@@ -149,13 +162,24 @@ fn ordinal_info_impl(kind: &str, input: &str) -> Result<Value, String> {
 #[wasm_bindgen]
 pub fn ordinal_compare(kind_a: &str, a: &str, kind_b: &str, b: &str) -> String {
     out((|| {
-        let (x, y) = (parse_input(kind_a, a)?.ordinal(), parse_input(kind_b, b)?.ordinal());
+        let (ia, ib) = (parse_input(kind_a, a)?, parse_input(kind_b, b)?);
+        let (x, y) = (ia.ordinal(), ib.ordinal());
         let rel = match x.cmp(&y) {
             std::cmp::Ordering::Less => "<",
             std::cmp::Ordering::Equal => "=",
             std::cmp::Ordering::Greater => ">",
         };
-        Ok(json!({ "a": x.to_string(), "b": y.to_string(), "relation": rel }))
+        // o(A) = α < β = o^*(b) のように、入力の式も並べる
+        let left = match ia.tex_expr() {
+            Some(e) => format!("{e} = {}", x.to_latex()),
+            None => x.to_latex(),
+        };
+        let right = match ib.tex_expr() {
+            Some(e) => format!("{} = {e}", y.to_latex()),
+            None => y.to_latex(),
+        };
+        let tex = latex::display(&latex::relation(&left, rel, &right));
+        Ok(json!({ "a": x.to_string(), "b": y.to_string(), "relation": rel, "latex": tex }))
     })())
 }
 
@@ -167,6 +191,32 @@ pub fn ordinal_compare(kind_a: &str, a: &str, kind_b: &str, b: &str) -> String {
 const MAX_WORM_LEN: usize = 4000;
 const MAX_TEXT_LEN: usize = 6000;
 const MAX_FORMULA_SIZE: usize = 120;
+/// 1 ステップの式の LaTeX をこれより長くは送らない（長い worm は数万文字になる）。
+const MAX_STEP_LATEX: usize = 1500;
+/// battle の LaTeX の表に入れる式の文字数の合計の上限。
+const MAX_TABLE_LATEX: usize = 30_000;
+
+/// 長すぎる LaTeX は送らない。
+fn short_tex(s: String) -> Option<String> {
+    (s.len() <= MAX_STEP_LATEX).then_some(s)
+}
+
+/// battle の表：先頭から、式の LaTeX の合計が上限に収まるところまで。
+fn battle_table(rows: Vec<BattleRow>, name: &str, ord: Option<&str>, finished: bool) -> Value {
+    let mut used = 0;
+    let mut take = Vec::new();
+    let total = rows.len();
+    for r in rows {
+        used += r.formula.len();
+        if used > MAX_TABLE_LATEX && !take.is_empty() {
+            break;
+        }
+        take.push(r);
+    }
+    let rows_in = take.len();
+    let more = rows_in < total || !finished;
+    json!({ "code": latex::battle_table(&take, name, ord, more), "rows": rows_in, "total": total })
+}
 
 /// battle を最大 `limit` ステップ進める。`kind` は "worm"・"bracket"・"rcbi"。
 #[wasm_bindgen]
@@ -176,6 +226,7 @@ pub fn battle(kind: &str, input: &str, limit: u32) -> String {
 
 fn battle_impl(kind: &str, input: &str, limit: usize) -> Result<Value, String> {
     let mut steps = Vec::new();
+    let mut rows: Vec<BattleRow> = Vec::new();
     let mut stopped: Option<String> = None;
     let finished;
     match kind {
@@ -192,9 +243,14 @@ fn battle_impl(kind: &str, input: &str, limit: usize) -> Result<Value, String> {
                     finished = false;
                     break;
                 }
+                let o = cur.ordinal();
+                let f = cur.to_latex();
+                rows.push(BattleRow { formula: f.clone(), ordinal: Some(o.to_latex()) });
                 steps.push(json!({
                     "letters": cur.letters(),
-                    "ordinal": cur.ordinal().to_string(),
+                    "ordinal": o.to_string(),
+                    "latex": short_tex(f),
+                    "ordinal_latex": o.to_latex(),
                 }));
                 if steps.len() > limit {
                     finished = false;
@@ -228,11 +284,16 @@ fn battle_impl(kind: &str, input: &str, limit: usize) -> Result<Value, String> {
                 distinct.dedup();
                 let ranks: Vec<usize> = ords.iter().map(|o| distinct.binary_search(o).unwrap()).collect();
                 let letters: Vec<String> = ords.iter().map(|o| o.to_string()).collect();
+                let o = cur.ordinal();
+                let f = cur.to_latex();
+                rows.push(BattleRow { formula: f.clone(), ordinal: Some(o.to_latex()) });
                 steps.push(json!({
                     "text": text,
-                    "ordinal": cur.ordinal().to_string(),
+                    "ordinal": o.to_string(),
                     "ranks": ranks,
                     "letter_ordinals": letters,
+                    "latex": short_tex(f),
+                    "ordinal_latex": o.to_latex(),
                 }));
                 if steps.len() > limit {
                     finished = false;
@@ -253,7 +314,9 @@ fn battle_impl(kind: &str, input: &str, limit: usize) -> Result<Value, String> {
                     finished = false;
                     break;
                 }
-                steps.push(json!({ "text": cur.to_string(), "size": cur.size() }));
+                let f = cur.to_latex();
+                rows.push(BattleRow { formula: f.clone(), ordinal: None });
+                steps.push(json!({ "text": cur.to_string(), "size": cur.size(), "latex": short_tex(f) }));
                 if steps.len() > limit {
                     finished = false;
                     break;
@@ -262,81 +325,59 @@ fn battle_impl(kind: &str, input: &str, limit: usize) -> Result<Value, String> {
         }
         _ => return Err(format!("battle の種類が不明です: {kind}")),
     }
-    Ok(json!({ "kind": kind, "steps": steps, "finished": finished, "stopped": stopped }))
+    let table = match kind {
+        "worm" => battle_table(rows, "A", Some("o(A_{k})"), finished),
+        "bracket" => battle_table(rows, "a", Some("o^{*}(a_{k})"), finished),
+        _ => battle_table(rows, "A", None, finished),
+    };
+    Ok(json!({ "kind": kind, "steps": steps, "finished": finished, "stopped": stopped, "latex_table": table }))
 }
 
 // ----------------------------------------------------------------------
 // 証明
 // ----------------------------------------------------------------------
 
-/// 証明 DAG を JSON にする（結論と規則は表示用の文字列）。
-fn proof_json<J: Display, R: Display>(p: &Proof<J, R>) -> Value {
+/// 証明 DAG を JSON にする（結論と規則は表示用の文字列）。LaTeX（証明木と行番号つきの一覧）も付ける。
+fn proof_json<J: Display + ToLatex, R: Display + ToLatex>(p: &Proof<J, R>, verdict: &str) -> Value {
     let nodes: Vec<Value> = p
         .nodes
         .iter()
         .map(|n| json!({ "rule": n.rule.to_string(), "premises": n.premises, "conclusion": n.conclusion.to_string() }))
         .collect();
+    // 行番号つきの一覧は DAG のノード数の行になる。大きすぎるものは送らない
+    let lines = (p.dag_size() <= 800).then(|| latex::proof_lines(p));
     json!({
         "root": p.root,
         "nodes": nodes,
         "dag_size": p.dag_size(),
         "tree_size": p.tree_size().to_string(),
         "height": p.height(),
+        "latex": {
+            "verdict": latex::display(verdict),
+            "tree": latex::proof_tree(p, latex::TREE_LIMIT),
+            "lines": lines,
+            "tree_limit": latex::TREE_LIMIT.to_string(),
+        },
     })
 }
 
-/// 行の集合を辺のリストにする。
-fn edges_of(rows: &[BitSet]) -> Vec<[usize; 2]> {
-    rows.iter().enumerate().flat_map(|(x, row)| row.iter().map(move |y| [x, y])).collect()
+/// モデルを JSON にする（点の配置つき。Web の図と TikZ はこの配置を使う）。
+fn model_json(v: &ModelView) -> Value {
+    serde_json::to_value(v).unwrap_or_else(|e| json!({ "error": e.to_string() }))
 }
 
-/// RC の閉包モデルを JSON にする。`highlight` が真になる点に印を付ける。
+/// RC の閉包モデル。`highlight` が真になる点に印を付ける。
 fn rc_model_json<L: Letter>(m: &rc::Model<L>, highlight: Option<&Spf<L>>) -> Value {
-    let n = m.num_points();
-    let points: Vec<Value> = (0..n)
-        .map(|x| {
-            let vars: Vec<&String> = m.label(x).iter().collect();
-            json!({ "id": x, "label": vars.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(","), "kind": "点" })
-        })
-        .collect();
-    let relations: Vec<Value> = m
-        .signature()
-        .iter()
-        .map(|l| {
-            let edges: Vec<[usize; 2]> =
-                (0..n).flat_map(|x| (0..n).filter(move |&y| m.related(l, x, y)).map(move |y| [x, y])).collect();
-            json!({ "name": format!("R_{l}"), "edges": edges })
-        })
-        .collect();
-    let base: Vec<Value> = m.tree_edges().iter().map(|(x, l, y)| json!([x, format!("R_{l}"), y])).collect();
-    let hl: Vec<usize> = highlight.map(|b| m.truth_set(b).iter().collect()).unwrap_or_default();
-    json!({ "root": 0, "points": points, "relations": relations, "base_edges": base, "highlight": hl })
+    model_json(&ModelView::from_rc(m, highlight))
 }
 
-/// RC_BI の有限モデル M_A を JSON にする。
+/// RC_BI の有限モデル M_A。
 fn rcbi_model_json(m: &rcbi::Model, highlight: Option<&Formula>) -> Value {
-    let n = m.num_points();
-    let points: Vec<Value> = (0..n)
-        .map(|x| {
-            let kind = match m.kind(x) {
-                rcbi::PointKind::Tree => "構文木".to_string(),
-                rcbi::PointKind::Zero => "零点".to_string(),
-                rcbi::PointKind::Intermediate => "中間点".to_string(),
-                rcbi::PointKind::Copy(b) => format!("{b} のコピー点"),
-            };
-            json!({ "id": x, "label": "", "kind": kind, "anchor": m.anchor(x) })
-        })
-        .collect();
-    let relations: Vec<Value> =
-        m.relations().into_iter().map(|(name, rows)| json!({ "name": name, "edges": edges_of(rows) })).collect();
-    let base: Vec<Value> = m.base_edges().into_iter().map(|(x, name, y)| json!([x, name, y])).collect();
-    let hl: Vec<usize> = highlight.map(|b| m.truth_set(b).iter().collect()).unwrap_or_default();
+    let mut v = model_json(&ModelView::from_rcbi(m, highlight));
     // フレーム条件の検査は総当たりで重いので、小さいモデルだけ
-    let violations: Option<Vec<String>> = (n <= 120).then(|| m.frame_violations());
-    json!({
-        "root": 0, "points": points, "relations": relations, "base_edges": base, "highlight": hl,
-        "frame_violations": violations,
-    })
+    let n = m.num_points();
+    v["frame_violations"] = json!((n <= 120).then(|| m.frame_violations()));
+    v
 }
 
 /// 判定と証明。`system` は "rc"・"wc"・"bc"・"rcbi"。
@@ -348,25 +389,34 @@ pub fn prove(system: &str, sequent: &str) -> String {
 
 fn rc_prove<L: Letter>(q: Sequent<L>) -> Result<Value, String> {
     let d = rc::decide(&q.lhs, &q.rhs);
+    let verdict = latex::verdict(&q.lhs.to_latex(), &q.rhs.to_latex(), d.holds);
     if !d.holds {
-        return Ok(json!({ "holds": false, "sequent": d.sequent.to_string(), "model": rc_model_json(&d.model, Some(&q.rhs)) }));
+        return Ok(json!({
+            "holds": false, "sequent": d.sequent.to_string(), "latex": latex::display(&verdict),
+            "model": rc_model_json(&d.model, Some(&q.rhs)),
+        }));
     }
     let (p, st) = rcproof::derive(&q.lhs, &q.rhs)?;
     rcproof::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
     Ok(json!({
-        "holds": true, "sequent": d.sequent.to_string(), "proof": proof_json(&p), "checked": true,
+        "holds": true, "sequent": d.sequent.to_string(), "latex": latex::display(&verdict),
+        "proof": proof_json(&p, &verdict), "checked": true,
         "stats": { "facts_used": st.facts_used, "facts_total": st.facts_total },
     }))
 }
 
 fn wc_prove<L: Letter>(a: Worm<L>, b: Worm<L>) -> Result<Value, String> {
     let seq = format!("{a} ⊢ {b}");
-    if !wc::decide(&a, &b) {
-        return Ok(json!({ "holds": false, "sequent": seq }));
+    let holds = wc::decide(&a, &b);
+    let verdict = latex::verdict(&a.to_latex(), &b.to_latex(), holds);
+    if !holds {
+        return Ok(json!({ "holds": false, "sequent": seq, "latex": latex::display(&verdict) }));
     }
     let p = wc::prove(&a, &b)?;
     wc::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
-    Ok(json!({ "holds": true, "sequent": seq, "proof": proof_json(&p), "checked": true }))
+    Ok(json!({
+        "holds": true, "sequent": seq, "latex": latex::display(&verdict), "proof": proof_json(&p, &verdict), "checked": true,
+    }))
 }
 
 fn prove_impl(system: &str, s: &str) -> Result<Value, String> {
@@ -392,17 +442,20 @@ fn prove_impl(system: &str, s: &str) -> Result<Value, String> {
         "bc" => {
             let q: BSeq = s.parse().map_err(|e: bc::ParseError| e.to_string())?;
             let tau = q.tau();
-            if !bc::decide(&q.lhs, &q.rhs) {
+            let holds = bc::decide(&q.lhs, &q.rhs);
+            let verdict = latex::verdict(&q.lhs.to_latex(), &q.rhs.to_latex(), holds);
+            if !holds {
                 let d = rc::decide(&q.lhs.to_rc(), &q.rhs.to_rc());
                 return Ok(json!({
-                    "holds": false, "sequent": q.to_string(), "tau": tau.to_string(),
+                    "holds": false, "sequent": q.to_string(), "tau": tau.to_string(), "latex": latex::display(&verdict),
                     "model": rc_model_json(&d.model, Some(&q.rhs.to_rc())),
                 }));
             }
             let (p, st) = bc::derive(&q.lhs, &q.rhs)?;
             bc::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
             Ok(json!({
-                "holds": true, "sequent": q.to_string(), "tau": tau.to_string(), "proof": proof_json(&p), "checked": true,
+                "holds": true, "sequent": q.to_string(), "tau": tau.to_string(), "latex": latex::display(&verdict),
+                "proof": proof_json(&p, &verdict), "checked": true,
                 "stats": { "side_conditions": st.side_conditions, "max_side_depth": st.max_side_depth },
             }))
         }
@@ -411,7 +464,11 @@ fn prove_impl(system: &str, s: &str) -> Result<Value, String> {
             check_size(&q.lhs)?;
             check_size(&q.rhs)?;
             let d = rcbi::decide(&q.lhs, &q.rhs)?;
-            Ok(json!({ "holds": d.holds, "sequent": d.sequent.to_string(), "model": rcbi_model_json(&d.model, Some(&q.rhs)) }))
+            let verdict = latex::verdict(&q.lhs.to_latex(), &q.rhs.to_latex(), d.holds);
+            Ok(json!({
+                "holds": d.holds, "sequent": d.sequent.to_string(), "latex": latex::display(&verdict),
+                "model": rcbi_model_json(&d.model, Some(&q.rhs)),
+            }))
         }
         _ => Err(format!("体系が不明です: {system}")),
     }
@@ -496,6 +553,23 @@ fn rcbi_model_impl(input: &str) -> Result<Value, String> {
     Ok(v)
 }
 
+/// モデル（[`rc_model`]・[`rcbi_model`]・[`prove`] が返した JSON の "model"）を TikZ にする。
+/// `shown` は閉包後の辺も描く関係の名前の JSON 配列、`base` は骨組みの辺を描くか。
+#[wasm_bindgen]
+pub fn model_tikz(model: &str, shown: &str, base: bool) -> String {
+    out((|| {
+        let v: ModelView = serde_json::from_str(model).map_err(|e| format!("モデルを読めません: {e}"))?;
+        let shown: Vec<String> = serde_json::from_str(shown).map_err(|e| format!("関係の名前を読めません: {e}"))?;
+        Ok(json!({ "tikz": v.tikz(&shown, base) }))
+    })())
+}
+
+/// LaTeX の断片を、プリアンブルつきの文書にする（JSON ではなく文字列をそのまま返す）。
+#[wasm_bindgen]
+pub fn latex_document(body: &str) -> String {
+    latex::document(body)
+}
+
 // ----------------------------------------------------------------------
 // RC_BI の順序と基本列
 // ----------------------------------------------------------------------
@@ -524,7 +598,8 @@ pub fn rcbi_info(input: &str, k: u32) -> String {
         } else {
             Vec::new()
         };
-        Ok(json!({ "formula": a.to_string(), "form": form, "predecessor": pred, "approximations": approx }))
+        let tex = latex::rcbi_form(&a, k.clamp(1, 6))?;
+        Ok(json!({ "formula": a.to_string(), "form": form, "predecessor": pred, "approximations": approx, "latex": tex }))
     })())
 }
 
@@ -533,13 +608,15 @@ pub fn rcbi_info(input: &str, k: u32) -> String {
 pub fn rcbi_compare(a: &str, b: &str) -> String {
     out((|| {
         let (x, y) = (parse_wbi(a)?, parse_wbi(b)?);
-        let rel = match rcbi_order::compare(&x, &y) {
+        let o = rcbi_order::compare(&x, &y);
+        let rel = match o {
             Some(std::cmp::Ordering::Less) => Some("<"),
             Some(std::cmp::Ordering::Equal) => Some("≡"),
             Some(std::cmp::Ordering::Greater) => Some(">"),
             None => None,
         };
-        Ok(json!({ "a": x.to_string(), "b": y.to_string(), "relation": rel }))
+        let tex = o.map(|o| latex::display(&latex::rcbi_relation(&x.to_latex(), o, &y.to_latex())));
+        Ok(json!({ "a": x.to_string(), "b": y.to_string(), "relation": rel, "latex": tex }))
     })())
 }
 
@@ -600,6 +677,29 @@ mod tests {
         let v = parse(&rcbi_model("D <1> T"));
         assert_eq!(v["points"].as_array().unwrap().len(), 5);
         assert!(v["base_edges"].as_array().unwrap().len() >= 4);
+    }
+
+    #[test]
+    fn latex_outputs() {
+        let v = parse(&prove("rc", "<1>p & <0>q |- <1>(p & <0>q)"));
+        let tree = v["proof"]["latex"]["tree"].as_str().unwrap();
+        assert!(tree.starts_with("\\begin{prooftree}"));
+        assert!(v["proof"]["latex"]["lines"].as_str().unwrap().contains("\\begin{array}"));
+        let v = parse(&prove("rc", "<0>p |- <1>p"));
+        assert!(v["latex"].as_str().unwrap().contains("\\nvdash"));
+        // モデルを JSON で送り返して TikZ にする
+        let model = v["model"].to_string();
+        let t = parse(&model_tikz(&model, "[\"R_1\"]", true));
+        assert!(t["tikz"].as_str().unwrap().contains("\\begin{tikzpicture}"));
+        assert!(parse(&model_tikz("{}", "[]", true)).get("error").is_some());
+        let v = parse(&ordinal_info("worm", "2 0 1"));
+        assert!(v["latex"].as_str().unwrap().contains("\\begin{align*}"));
+        let v = parse(&battle("worm", "1 1", 100));
+        assert_eq!(v["steps"][0]["latex"], "\\langle 1\\rangle\\langle 1\\rangle\\top");
+        assert!(v["latex_table"]["code"].as_str().unwrap().contains("\\hline"));
+        assert!(latex_document("x").contains("\\documentclass"));
+        let v = parse(&rcbi_info("<2>_2<2>_3 T", 2));
+        assert!(v["latex"].as_str().unwrap().contains("(A)_{2}"));
     }
 
     #[test]
