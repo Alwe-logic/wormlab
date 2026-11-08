@@ -44,6 +44,9 @@
   --kind-zero: #005766;
   --kind-int: #2c3a2c;
   --kind-copy: #6b3d00;
+  /* worm の顔：口（赤）と舌（桃色） */
+  --worm-mouth: #ff2d4f;
+  --worm-tongue: #ff8fb8;
   /* 光 */
   --glow: 0 0 4px rgba(57, 255, 20, 0.75), 0 0 14px rgba(57, 255, 20, 0.35);
   --glow-box: 0 0 16px rgba(57, 255, 20, 0.14);
@@ -177,6 +180,7 @@ header.site .sub {
   font-size: 9px;
   line-height: 20px;
   text-align: center;
+  border-radius: 5px;
   box-shadow: 0 0 8px rgba(57, 255, 20, 0.55);
   animation: crawl 1.2s steps(2, jump-none) infinite;
 }
@@ -197,44 +201,25 @@ header.site .sub {
   animation-delay: -1.2s;
 }
 
-/* 頭：目（黒い四角）と、左向きの口 */
+/* 頭としっぽはドット絵の SVG（index.astro）。形に沿って光らせる */
+.worm-logo .head,
+.worm-logo .tail {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+  filter: drop-shadow(0 0 4px rgba(57, 255, 20, 0.6));
+}
+
 .worm-logo .head {
-  position: relative;
   width: 24px;
   height: 24px;
-  border-radius: 6px 2px 2px 6px;
 }
 
-.worm-logo .head::before {
-  content: "";
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  left: 6px;
-  top: 6px;
-  background: #000;
-}
-
-.worm-logo .head::after {
-  content: "";
-  position: absolute;
-  width: 7px;
-  height: 3px;
-  left: 0;
-  bottom: 5px;
-  background: #000;
-}
-
-/* しっぽ：⊤ */
+/* しっぽ：太い ⊤ */
 .worm-logo .tail {
-  width: 14px;
-  height: 14px;
-  background: transparent;
-  color: var(--neon);
-  font-family: var(--mono);
-  font-size: 15px;
-  line-height: 14px;
-  box-shadow: none;
+  width: 16px;
+  height: 20px;
 }
 
 @keyframes crawl {

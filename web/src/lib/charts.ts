@@ -43,15 +43,31 @@ export function bars(container: HTMLElement, values: number[], labels: string[],
     }
   });
   svg.append(g);
-  // 頭（先頭の棒）の目と口
+  // 頭（先頭の棒）の顔：目、太くなれば赤い口も（ロゴの worm と同じ色）
   const v0 = values[0];
   if (bw >= 10) {
-    const yTop = H - (v0 + 1) * unit;
-    const e = Math.max(3, Math.round(bw / 7));
+    const yTop = H - (v0 + 1) * unit + (blocky ? 1 : 0);
+    const room = blocky ? unit - 2 : (v0 + 1) * unit; // 顔を描ける高さ（いちばん上のブロック）
+    const e = Math.max(3, Math.round(bw / 7)); // 目の大きさ
+    const ey = yTop + Math.max(2, Math.round(e * 0.8));
+    const lx = Math.round(bw * 0.22);
+    const rx = Math.round(bw * 0.78) - e;
     svg.append(
-      s('rect', { x: Math.round(bw * 0.25), y: yTop + e + 2, width: e, height: e, fill: '#000' }),
-      s('rect', { x: Math.round(bw * 0.6), y: yTop + e + 2, width: e, height: e, fill: '#000' }),
+      s('rect', { x: lx, y: ey, width: e, height: e, fill: '#000' }),
+      s('rect', { x: rx, y: ey, width: e, height: e, fill: '#000' }),
     );
+    const u = Math.max(1, Math.round(e / 3)); // 口のドット 1 つ
+    const my = ey + e + u;
+    if (bw >= 14 && my + 2 * u + 1 <= yTop + room) {
+      const x0 = lx + e;
+      const w = Math.max(3 * u, rx - x0);
+      // にっこりした口：両端が 1 ドット上がった赤い線
+      svg.append(
+        s('rect', { x: x0 + u, y: my + u, width: w - 2 * u, height: u + 1, fill: 'var(--worm-mouth)' }),
+        s('rect', { x: x0, y: my, width: u, height: u + 1, fill: 'var(--worm-mouth)' }),
+        s('rect', { x: x0 + w - u, y: my, width: u, height: u + 1, fill: 'var(--worm-mouth)' }),
+      );
+    }
   }
   // ツールチップ（棒より広い当たり判定：x 座標から一番近い棒）
   const hit = s('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent' });

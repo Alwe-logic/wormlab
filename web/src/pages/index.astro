@@ -5,6 +5,35 @@ import Ordinal from '../components/Ordinal.astro';
 import Proof from '../components/Proof.astro';
 import Model from '../components/Model.astro';
 
+// ロゴの worm の頭（ドット絵、左向き）。1 文字が 1 ドット：
+//   G 体、K 目、W 目の光、R 口、T 舌、. 透明
+const HEAD = [
+  '...GGGGGGGGG',
+  '.GGGGGGGGGGG',
+  '.GGWKKGGGGGG',
+  'GGGKKKGGGGGG',
+  'GGGKKKGGGGGG',
+  'GGGGGGGGGGGG',
+  'GRRRRRGGGGGG',
+  'GGRTRGGGGGGG',
+  'GGGGGGGGGGGG',
+  '.GGGGGGGGGGG',
+  '.GGGGGGGGGGG',
+  '...GGGGGGGGG',
+];
+// しっぽの ⊤（太いドット）
+const TAIL = ['GGGGGGGG', 'GGGGGGGG', ...Array(8).fill('...GG...')];
+const PIXEL_COLOR: Record<string, string> = {
+  G: 'var(--neon)',
+  K: '#000',
+  W: '#fff',
+  R: 'var(--worm-mouth)',
+  T: 'var(--worm-tongue)',
+};
+/** ドット絵の文字列を、色つきの 1×1 の四角の並びにする。 */
+const pixels = (map: string[]) =>
+  map.flatMap((row, y) => [...row].map((c, x) => ({ x, y, c }))).filter((p) => p.c !== '.');
+
 const tabs = [
   { id: 'battle', label: 'battle' },
   { id: 'ordinal', label: '順序数電卓' },
@@ -19,7 +48,15 @@ const tabs = [
       <div class="marquee">
         <!-- ロゴの worm は ⟨2⟩⟨0⟩⟨2⟩⊤（左が頭＝いちばん外側の文字） -->
         <span class="worm-logo" aria-hidden="true">
-          <span class="seg head"></span><span class="seg">2</span><span class="seg">0</span><span class="seg">2</span><span class="seg tail">⊤</span>
+          <svg class="seg head" viewBox="0 0 12 12" shape-rendering="crispEdges">
+            {pixels(HEAD).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={PIXEL_COLOR[p.c]} />)}
+          </svg><span class="seg">2</span><span class="seg">0</span><span class="seg">2</span><svg
+            class="seg tail"
+            viewBox="0 0 8 10"
+            shape-rendering="crispEdges"
+          >
+            {pixels(TAIL).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={PIXEL_COLOR[p.c]} />)}
+          </svg>
         </span>
         <div class="title">
           <h1>WORMLAB</h1>
