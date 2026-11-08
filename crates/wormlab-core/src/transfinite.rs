@@ -71,10 +71,15 @@ fn o_rec(a: &[Veblen]) -> Veblen {
         let lowered = shift_down(mu, a).expect("μ は最小値");
         return hyperexp(mu, &o_rec(&lowered));
     }
-    // A = H 0 B（H は最初の 0 の手前）
-    let i = a.iter().position(|x| x.is_zero()).expect("0 を含む");
-    let (h, b) = (&a[..i], &a[i + 1..]);
-    o_rec(b) + Veblen::one() + o_rec(h)
+    // A = H 0 B（H は最初の 0 の手前）なら o(A) = o(B) + 1 + o(H)。
+    // 0 で一度に分けて A = H_1 0 H_2 0 … 0 H_k とし、右の成分から畳む
+    // （B に対して最小値を探し直すと、0 が多いとき O(n²) になる）。
+    let mut parts = a.split(|x| x.is_zero()).rev();
+    let mut sum = o_rec(parts.next().expect("split は 1 つ以上の成分を返す"));
+    for h in parts {
+        sum = sum + Veblen::one() + o_rec(h);
+    }
+    sum
 }
 
 /// 逆写像の本体。o(inv(α)) = α となる worm を返す。

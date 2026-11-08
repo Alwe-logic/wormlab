@@ -65,3 +65,31 @@ impl Letter for Veblen {
         s.trim().parse().ok()
     }
 }
+
+/// 文字を、大小だけを保つ順位（0, 1, 2, … の u32）に直す道具。
+///
+/// RC・WC・head/body の判定は文字の大小しか使わないので、順序数や括弧語の文字でも、
+/// 入口で順位に直せば内側の比較がすべて整数の比較になる（1 回の比較が重い文字ほど効く）。
+pub(crate) struct Ranks<L> {
+    /// 現れる文字（昇順、重複なし）
+    sig: Vec<L>,
+}
+
+impl<L: Letter> Ranks<L> {
+    pub(crate) fn new(letters: impl IntoIterator<Item = L>) -> Ranks<L> {
+        let mut sig: Vec<L> = letters.into_iter().collect();
+        sig.sort();
+        sig.dedup();
+        Ranks { sig }
+    }
+
+    /// x の順位（x は `new` に渡した文字のどれか）。
+    pub(crate) fn of(&self, x: &L) -> u32 {
+        self.sig.binary_search(x).expect("登録した文字") as u32
+    }
+
+    /// 文字の型がもともと u32 か（そのときは直す必要がない）。
+    pub(crate) fn is_u32() -> bool {
+        std::any::TypeId::of::<L>() == std::any::TypeId::of::<u32>()
+    }
+}

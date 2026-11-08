@@ -29,7 +29,7 @@
 //! にすると、状態数は ≤ 2·(2|w|+1)·(2|v|+1)、1 状態 O(1) で、全体 O(|w|·|v|)。
 //! スライスをキーにする [`HeadBody`] は、キーのハッシュに O(n) かかる。
 
-use crate::letter::Letter;
+use crate::letter::{Letter, Ranks};
 use crate::worm::Worm;
 use crate::proof::FxBuild;
 use std::collections::HashMap;
@@ -260,6 +260,11 @@ pub fn lt<L: Letter>(mu: L, w: &Worm<L>, v: &Worm<L>) -> Option<bool> {
     if !w.is_n_worm(mu.clone()) || !v.is_n_worm(mu) {
         return None;
     }
+    if !Ranks::<L>::is_u32() {
+        // 文字を順位に直してから（比較は文字の大小しか使わない）
+        let r = Ranks::new(w.letters().iter().chain(v.letters()).cloned());
+        return lt(0, &w.map(|x| r.of(x)), &v.map(|x| r.of(x)));
+    }
     let mut c = CtCompare::new(w.letters(), v.letters());
     let (rw, rv) = (c.root_w(), c.root_v());
     Some(c.lt(rw, rv))
@@ -267,6 +272,10 @@ pub fn lt<L: Letter>(mu: L, w: &Worm<L>, v: &Worm<L>) -> Option<bool> {
 
 /// GLP ⊢ w ↔ v を head/body 再帰で判定する（μ = 0 として）。
 pub fn equiv<L: Letter>(w: &Worm<L>, v: &Worm<L>) -> bool {
+    if !Ranks::<L>::is_u32() {
+        let r = Ranks::new(w.letters().iter().chain(v.letters()).cloned());
+        return equiv(&w.map(|x| r.of(x)), &v.map(|x| r.of(x)));
+    }
     let le = |x: &Worm<L>, y: &Worm<L>| {
         let mut c = CtCompare::new(x.letters(), y.letters());
         let (rx, ry) = (c.root_w(), c.root_v());

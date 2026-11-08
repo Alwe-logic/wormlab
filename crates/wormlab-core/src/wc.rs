@@ -34,7 +34,7 @@
 
 use crate::latex::ToLatex;
 use crate::headbody::CtCompare;
-use crate::letter::Letter;
+use crate::letter::{Letter, Ranks};
 use crate::proof::{self, Builder, Calculus, FxBuild, Proof};
 use crate::rc;
 use crate::spf::Spf;
@@ -248,7 +248,12 @@ impl<L: Letter> Decider<L> {
 
 /// WC（＝ RC ＝ GLP）で worm シーケント A ⊢ B が成り立つか（構文的判定）。
 pub fn decide<L: Letter>(a: &Worm<L>, b: &Worm<L>) -> bool {
-    Decider::new(a.letters(), b.letters()).decide_root()
+    if Ranks::<L>::is_u32() {
+        return Decider::new(a.letters(), b.letters()).decide_root();
+    }
+    // 文字を順位に直してから（判定は文字の大小しか使わない）
+    let r = Ranks::new(a.letters().iter().chain(b.letters()).cloned());
+    decide(&a.map(|x| r.of(x)), &b.map(|x| r.of(x)))
 }
 
 /// WC の証明を組み立てる。2 段構え：

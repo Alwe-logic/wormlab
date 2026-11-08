@@ -43,6 +43,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 use std::str::FromStr;
 
 /// 括弧語。中身は文字（それ自身も括弧語）の列で、空なら ⊤。
@@ -116,14 +117,21 @@ impl Bracket {
 
     /// 基本列 a{n}（⊤ なら `None`）。
     pub fn fundamental(&self, n: usize) -> Option<Bracket> {
+        self.fundamental_with(n, &mut HashMap::new())
+    }
+
+    /// [`Bracket::fundamental`] の本体。文字の順序数を `cache` に覚えておく
+    /// （battle では同じ文字が何度も現れるので、毎回計算し直さない）。
+    fn fundamental_with(&self, n: usize, cache: &mut HashMap<Bracket, Veblen>) -> Option<Bracket> {
         let (a1, _) = self.0.split_first()?;
         if a1.is_top() {
             return Some(Bracket(self.0[1..].to_vec()));
         }
-        let o1 = a1.ordinal();
+        let mut ord = |x: &Bracket| cache.entry(x.clone()).or_insert_with(|| x.ordinal()).clone();
+        let o1 = ord(a1);
         let l = self.0[1..]
             .iter()
-            .position(|x| x.ordinal() < o1)
+            .position(|x| ord(x) < o1)
             .map_or(self.0.len(), |p| p + 1);
         let mut b = vec![a1.fundamental(n).expect("a_1 ≠ ⊤")];
         b.extend(self.0[1..l].iter().cloned());
@@ -137,7 +145,44 @@ impl Bracket {
 
     /// a⦃0⦄ = a、a⦃n+1⦄ = a⦃n⦄{n+1} を順に返すイテレータ（⊤ で終わる）。
     pub fn battle(&self) -> BracketBattle {
-        BracketBattle { current: Some(self.clone()), step: 0 }
+        BracketBattle { current: Some(self.clone()), step: 0, cache: HashMap::new() }
+    }
+
+    /// battle が ⊤ に着くまでのステップ数。`max_steps` を超えたら `None`。
+    ///
+    /// [`Bracket::battle`] を数えるのと同じ値だが、括弧語を逆順（外側が末尾）の Vec で持ち、
+    /// 文字は順序数と組にして `Rc` で共有する。先頭の ⊤ を外すのは pop、展開は先頭の
+    /// b の部分だけ。文字の順序数は文字を作ったときに 1 回だけ計算する。
+    pub fn battle_length(&self, max_steps: u64) -> Option<u64> {
+        // 文字と、その順序数の組
+        type Cell = Rc<(Bracket, Veblen)>;
+        let mk = |b: Bracket| -> Cell {
+            let o = b.ordinal();
+            Rc::new((b, o))
+        };
+        let mut v: Vec<Cell> = self.0.iter().rev().map(|b| mk(b.clone())).collect();
+        let mut steps = 0u64;
+        while let Some(top) = v.last().cloned() {
+            if steps == max_steps {
+                return None;
+            }
+            steps += 1;
+            if top.0.is_top() {
+                v.pop();
+                continue;
+            }
+            // 末尾から見て、a_1 より小さい文字が最初に現れる手前までが b（逆順）
+            let o1 = &top.1;
+            let cut = v.iter().rposition(|x| x.1 < *o1).map_or(0, |p| p + 1);
+            let mut b = v.split_off(cut);
+            let n = usize::try_from(steps).ok()?;
+            *b.last_mut().expect("b は空でない") = mk(top.0.fundamental(n).expect("a_1 ≠ ⊤"));
+            v.reserve(b.len().checked_mul(n + 1)?);
+            for _ in 0..=n {
+                v.extend(b.iter().cloned());
+            }
+        }
+        Some(steps)
     }
 
     /// 自然数の worm を括弧語にする（文字 n は ()^n）。
@@ -171,10 +216,11 @@ pub fn depth_bound(n: usize) -> Veblen {
     (0..n).fold(Veblen::zero(), |h, _| hyperexp(&h, &Veblen::one()))
 }
 
-/// 括弧語の battle。
+/// 括弧語の battle。文字の順序数を覚えておき、ステップごとに計算し直さない。
 pub struct BracketBattle {
     current: Option<Bracket>,
     step: usize,
+    cache: HashMap<Bracket, Veblen>,
 }
 
 impl Iterator for BracketBattle {
@@ -183,7 +229,7 @@ impl Iterator for BracketBattle {
     fn next(&mut self) -> Option<Bracket> {
         let cur = self.current.take()?;
         self.step += 1;
-        self.current = cur.fundamental(self.step);
+        self.current = cur.fundamental_with(self.step, &mut self.cache);
         Some(cur)
     }
 }
@@ -204,11 +250,38 @@ impl Iterator for BracketBattle {
 ///
 /// 等しさは「同じ順序数を表す」という意味（語として違ってもよい）。
 /// 例：(())() と (()) はどちらも ω を表すので `Equal`。
+///
+/// 内部では括弧語を番号で持つ（同じ語は同じ番号。語は「文字の番号の列」）。
+/// 文字の比較は番号の組で、worm の比較は「どの語の何文字目から何文字目か」の組で
+/// メモするので、メモを引くたびに括弧語を複製・ハッシュしなくて済む。
 #[derive(Default)]
 pub struct BracketOrder {
-    letters: HashMap<(Bracket, Bracket), Ordering>,
-    worms: HashMap<(Vec<Bracket>, Vec<Bracket>, bool), bool>,
-    normal: HashMap<Bracket, Bracket>,
+    /// 語（文字の番号の列）→ 番号
+    word_ids: HashMap<Rc<[u32]>, u32>,
+    /// 番号 → 語
+    words: Vec<Rc<[u32]>>,
+    /// 外から渡された括弧語 → 番号（引き直しを速くするため）
+    ids: HashMap<Bracket, u32>,
+    /// 文字の比較のメモ
+    letters: HashMap<(u32, u32), Ordering>,
+    /// worm の比較のメモ：(w の区間, v の区間, strict) → w ◁ v か（strict）、w ⊴ v か
+    worms: HashMap<(Seg, Seg, bool), bool>,
+    /// 番号 → 正規形の番号
+    normal: HashMap<u32, u32>,
+}
+
+/// 語 `id` の `s` 文字目から `e` 文字目の手前まで。
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct Seg {
+    id: u32,
+    s: u32,
+    e: u32,
+}
+
+impl Seg {
+    fn len(self) -> u32 {
+        self.e - self.s
+    }
 }
 
 impl BracketOrder {
@@ -221,60 +294,8 @@ impl BracketOrder {
         if a == b {
             return Ordering::Equal;
         }
-        let key = (a.clone(), b.clone());
-        if let Some(&o) = self.letters.get(&key) {
-            return o;
-        }
-        let o = if self.worm_rel(&a.0, &b.0, true) {
-            Ordering::Less
-        } else if self.worm_rel(&b.0, &a.0, true) {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        };
-        self.letters.insert((b.clone(), a.clone()), o.reverse());
-        self.letters.insert(key, o);
-        o
-    }
-
-    /// worm として w ◁ v（`strict`）または w ⊴ v。文字の大小は [`Self::cmp`] で比べる。
-    /// 中身は headbody.rs の `HeadBody::rec` と同じ再帰。
-    fn worm_rel(&mut self, w: &[Bracket], v: &[Bracket], strict: bool) -> bool {
-        if v.is_empty() {
-            return !strict && w.is_empty();
-        }
-        if w.is_empty() {
-            return true;
-        }
-        let key = (w.to_vec(), v.to_vec(), strict);
-        if let Some(&ans) = self.worms.get(&key) {
-            return ans;
-        }
-        // λ = 両方に現れる最小の文字
-        let mut lambda = &w[0];
-        for x in w.iter().chain(v) {
-            if self.cmp(x, lambda) == Ordering::Less {
-                lambda = x;
-            }
-        }
-        let lambda = lambda.clone();
-        let (hw, bw) = self.head_body(w, &lambda);
-        let (hv, bv) = self.head_body(v, &lambda);
-        let ans = self.worm_rel(w, bv, false) || (self.worm_rel(bw, v, true) && self.worm_rel(hw, hv, strict));
-        self.worms.insert(key, ans);
-        ans
-    }
-
-    /// h_λ(w)（λ より大きい文字の最長の先頭部分）と b_λ(w)（最初の λ の後ろ）。
-    fn head_body<'a>(&mut self, w: &'a [Bracket], lambda: &Bracket) -> (&'a [Bracket], &'a [Bracket]) {
-        for (i, x) in w.iter().enumerate() {
-            match self.cmp(x, lambda) {
-                Ordering::Greater => {}
-                Ordering::Equal => return (&w[..i], &w[i + 1..]),
-                Ordering::Less => return (&w[..i], &[]), // λ は最小なので起こらない
-            }
-        }
-        (w, &[])
+        let (x, y) = (self.intern(a), self.intern(b));
+        self.cmp_id(x, y)
     }
 
     /// 正規形（Def. 31）：文字を再帰的に正規形にしてから、worm を Beklemishev
@@ -286,44 +307,178 @@ impl BracketOrder {
     /// （右の成分から足す）で、右に大きい項が来ると左の項が吸収されることに当たる。
     /// 例：(())() は α = ⊤ で成分 [()]、[⊤]。右の ⊤ は左の () より小さいので消えて (())。
     pub fn normal_form(&mut self, a: &Bracket) -> Bracket {
-        if let Some(nf) = self.normal.get(a) {
-            return nf.clone();
+        let x = self.intern(a);
+        let nx = self.normal_id(x);
+        self.to_bracket(nx)
+    }
+
+    // ---------------- 番号づけ ----------------
+
+    /// 括弧語の番号。外から渡された語だけ `ids` に覚える（部分の語は語の表で引く）。
+    fn intern(&mut self, a: &Bracket) -> u32 {
+        if let Some(&x) = self.ids.get(a) {
+            return x;
         }
-        let letters: Vec<Bracket> = a.0.iter().map(|x| self.normal_form(x)).collect();
-        let nf = Bracket(self.bnf(&letters));
-        self.normal.insert(a.clone(), nf.clone());
-        nf
+        let x = self.intern_rec(a);
+        self.ids.insert(a.clone(), x);
+        x
+    }
+
+    fn intern_rec(&mut self, a: &Bracket) -> u32 {
+        let letters: Vec<u32> = a.0.iter().map(|l| self.intern_rec(l)).collect();
+        self.word_id(letters)
+    }
+
+    fn word_id(&mut self, letters: Vec<u32>) -> u32 {
+        let w: Rc<[u32]> = letters.into();
+        if let Some(&x) = self.word_ids.get(&w) {
+            return x;
+        }
+        let x = u32::try_from(self.words.len()).expect("語の数が u32 に収まる");
+        self.words.push(w.clone());
+        self.word_ids.insert(w, x);
+        x
+    }
+
+    fn to_bracket(&self, x: u32) -> Bracket {
+        Bracket(self.words[x as usize].iter().map(|&l| self.to_bracket(l)).collect())
+    }
+
+    fn whole(&self, x: u32) -> Seg {
+        Seg { id: x, s: 0, e: self.words[x as usize].len() as u32 }
+    }
+
+    // ---------------- 比較 ----------------
+
+    /// 番号 x, y の括弧語の大小。
+    fn cmp_id(&mut self, x: u32, y: u32) -> Ordering {
+        if x == y {
+            return Ordering::Equal;
+        }
+        if let Some(&o) = self.letters.get(&(x, y)) {
+            return o;
+        }
+        let (wx, wy) = (self.whole(x), self.whole(y));
+        let o = if self.worm_rel(wx, wy, true) {
+            Ordering::Less
+        } else if self.worm_rel(wy, wx, true) {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        };
+        self.letters.insert((y, x), o.reverse());
+        self.letters.insert((x, y), o);
+        o
+    }
+
+    /// worm として w ◁ v（`strict`）または w ⊴ v。文字の大小は [`Self::cmp_id`] で比べる。
+    /// 中身は headbody.rs の `HeadBody::rec` と同じ再帰。
+    fn worm_rel(&mut self, w: Seg, v: Seg, strict: bool) -> bool {
+        if v.len() == 0 {
+            return !strict && w.len() == 0;
+        }
+        if w.len() == 0 {
+            return true;
+        }
+        let key = (w, v, strict);
+        if let Some(&ans) = self.worms.get(&key) {
+            return ans;
+        }
+        let (ww, wv) = (self.words[w.id as usize].clone(), self.words[v.id as usize].clone());
+        // λ = 両方に現れる最小の文字
+        let mut lambda = ww[w.s as usize];
+        for &x in ww[w.s as usize..w.e as usize].iter().chain(&wv[v.s as usize..v.e as usize]) {
+            if self.cmp_id(x, lambda) == Ordering::Less {
+                lambda = x;
+            }
+        }
+        let (hw, bw) = self.head_body(w, &ww, lambda);
+        let (hv, bv) = self.head_body(v, &wv, lambda);
+        let ans = self.worm_rel(w, bv, false) || (self.worm_rel(bw, v, true) && self.worm_rel(hw, hv, strict));
+        self.worms.insert(key, ans);
+        ans
+    }
+
+    /// h_λ(w)（λ より大きい文字の最長の先頭部分）と b_λ(w)（最初の λ の後ろ）。
+    fn head_body(&mut self, w: Seg, word: &[u32], lambda: u32) -> (Seg, Seg) {
+        let empty = Seg { id: w.id, s: w.e, e: w.e };
+        for i in w.s..w.e {
+            match self.cmp_id(word[i as usize], lambda) {
+                Ordering::Greater => {}
+                Ordering::Equal => return (Seg { e: i, ..w }, Seg { s: i + 1, ..w }),
+                Ordering::Less => return (Seg { e: i, ..w }, empty), // λ は最小なので起こらない
+            }
+        }
+        (w, empty)
+    }
+
+    // ---------------- 正規形 ----------------
+
+    fn normal_id(&mut self, x: u32) -> u32 {
+        if let Some(&n) = self.normal.get(&x) {
+            return n;
+        }
+        let word = self.words[x as usize].clone();
+        let letters: Vec<u32> = word.iter().map(|&l| self.normal_id(l)).collect();
+        let nf = self.bnf(&letters);
+        let n = self.word_id(nf);
+        self.normal.insert(x, n);
+        self.normal.insert(n, n);
+        n
     }
 
     /// 文字がすべて正規形の worm を BNF にする。正規形どうしなら
-    /// 「同じ順序数 ⟺ 語として同じ」なので、文字の等しさは == で判定できる。
-    fn bnf(&mut self, w: &[Bracket]) -> Vec<Bracket> {
-        let Some(first) = w.first() else {
+    /// 「同じ順序数 ⟺ 語として同じ ⟺ 番号が同じ」なので、文字の等しさは番号で判定できる。
+    fn bnf(&mut self, w: &[u32]) -> Vec<u32> {
+        let Some(&first) = w.first() else {
             return Vec::new();
         };
         let mut alpha = first;
-        for x in w {
-            if self.cmp(x, alpha) == Ordering::Less {
+        for &x in w {
+            if self.cmp_id(x, alpha) == Ordering::Less {
                 alpha = x;
             }
         }
-        let alpha = alpha.clone();
-        // 左から A_k, …, A_0。それぞれを BNF に
-        let comps: Vec<Vec<Bracket>> = w.split(|x| *x == alpha).map(|c| self.bnf(c)).collect();
-        let mut kept: Vec<&Vec<Bracket>> = Vec::new();
-        for (t, c) in comps.iter().enumerate() {
-            // 左側（添字 s < t）の成分のどれかより真に小さければ吸収される
-            let absorbed = (0..t).any(|s| self.worm_rel(c, &comps[s], true));
+        // 左から A_k, …, A_0。それぞれを BNF にして番号を振る
+        let comps: Vec<u32> = w
+            .split(|&x| x == alpha)
+            .map(|c| {
+                let b = self.bnf(c);
+                self.word_id(b)
+            })
+            .collect();
+        // 左側の成分のどれかより真に小さければ吸収される。worm の比較は全前順序なので、
+        // 「左側の最大値より小さいか」だけ見ればよい（成分 k 個で比較は k − 1 回）
+        let mut kept: Vec<u32> = Vec::new();
+        let mut max: Option<u32> = None;
+        for &c in &comps {
+            let absorbed = match max {
+                None => false,
+                Some(m) => {
+                    let (sc, sm) = (self.whole(c), self.whole(m));
+                    if self.worm_rel(sc, sm, true) {
+                        true
+                    } else {
+                        if self.worm_rel(sm, sc, true) {
+                            max = Some(c);
+                        }
+                        false
+                    }
+                }
+            };
+            if max.is_none() {
+                max = Some(c);
+            }
             if !absorbed {
                 kept.push(c);
             }
         }
         let mut out = Vec::new();
-        for (i, c) in kept.into_iter().enumerate() {
+        for (i, &c) in kept.iter().enumerate() {
             if i > 0 {
-                out.push(alpha.clone());
+                out.push(alpha);
             }
-            out.extend(c.iter().cloned());
+            out.extend(self.words[c as usize].iter().copied());
         }
         out
     }
@@ -331,7 +486,7 @@ impl BracketOrder {
     /// メモが大きくなりすぎたら捨てる（答えには影響しない）。
     fn trim(&mut self) {
         const LIMIT: usize = 1 << 20;
-        if self.letters.len() + self.worms.len() + self.normal.len() > LIMIT {
+        if self.words.len() + self.letters.len() + self.worms.len() + self.normal.len() > LIMIT {
             *self = Self::default();
         }
     }
@@ -617,5 +772,17 @@ mod tests {
     fn thm52_sequence() {
         let os: Vec<String> = (0..5).map(|m| Bracket::thm52(m).ordinal().to_string()).collect();
         assert_eq!(os, ["1", "2", "ε_0 + 1", "φ(ε_0, 0) + 1", "φ(φ(φ(ε_0, 0), 0), 0) + 1"]);
+    }
+
+    #[test]
+    fn battle_length_matches_iterator() {
+        for t in ["⊤", "()", "()()", "(())", "(())()", "(()())", "((()))", "(()())(())", "((()))()"] {
+            let a: Bracket = t.parse().unwrap();
+            for max in [0u64, 1, 3, 25] {
+                let by_iter = a.battle().skip(1).take(max as usize + 1).count() as u64;
+                let expect = if by_iter <= max { Some(by_iter) } else { None };
+                assert_eq!(a.battle_length(max), expect, "{t} max {max}");
+            }
+        }
     }
 }

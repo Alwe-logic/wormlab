@@ -43,7 +43,7 @@
 //! 規則（Horn 節）は O(N·|Sub(B)|) 個なので、作業リストで回すと O(|A|·|B|) 時間。
 //! テストで閉包モデルの判定と突き合わせている。
 use crate::bitset::BitSet;
-use crate::letter::Letter;
+use crate::letter::{Letter, Ranks};
 use crate::spf::{Sequent, Spf};
 use crate::worm::Worm;
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -263,9 +263,25 @@ pub fn decide<L: Letter>(lhs: &Spf<L>, rhs: &Spf<L>) -> Decision<L> {
 }
 
 /// RC ⊢ A ⊢ B か（判定法 2、O(|A|·|B|)）。
+///
+/// 文字が u32 でなければ、先に順位（u32）に直してから判定する（大小しか使わないので）。
 pub fn entails<L: Letter>(lhs: &Spf<L>, rhs: &Spf<L>) -> bool {
-    let (t, d) = (ATree::new(lhs), SubDag::new(rhs));
-    saturate(&t, &d, false).holds(0, d.root)
+    if Ranks::<L>::is_u32() {
+        let (t, d) = (ATree::new(lhs), SubDag::new(rhs));
+        return saturate(&t, &d, false).holds(0, d.root);
+    }
+    let r = Ranks::new(lhs.modalities().into_iter().chain(rhs.modalities()));
+    entails(&ranked(lhs, &r), &ranked(rhs, &r))
+}
+
+/// 式のモダリティを順位に直す。
+pub(crate) fn ranked<L: Letter>(a: &Spf<L>, r: &Ranks<L>) -> Spf<u32> {
+    match a {
+        Spf::Top => Spf::Top,
+        Spf::Var(p) => Spf::Var(p.clone()),
+        Spf::And(x, y) => Spf::and(ranked(x, r), ranked(y, r)),
+        Spf::Dia(m, x) => Spf::dia(r.of(m), ranked(x, r)),
+    }
 }
 
 /// A ≡ B（両方向に導出可能）か。

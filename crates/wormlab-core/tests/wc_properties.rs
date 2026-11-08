@@ -10,7 +10,7 @@ use proptest::prelude::*;
 use std::cmp::Ordering;
 use wormlab_core::rc::entails;
 use wormlab_core::wc::{self, WSeq};
-use wormlab_core::{Spf, Worm, headbody};
+use wormlab_core::{Spf, Veblen, Worm, headbody};
 
 fn worm() -> impl Strategy<Value = Worm> {
     prop::collection::vec(0u32..4, 0..8).prop_map(Worm::new)
@@ -18,6 +18,16 @@ fn worm() -> impl Strategy<Value = Worm> {
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn ordinal_letters_agree(a in worm(), b in worm()) {
+        // 文字 n を φ(n, 0) に写しても（大小は保たれる）判定と比較は同じ
+        let up = |w: &Worm| w.map(|&n| Veblen::phi(Veblen::nat(n as u64), Veblen::zero()));
+        let (va, vb) = (up(&a), up(&b));
+        prop_assert_eq!(wc::decide(&a, &b), wc::decide(&va, &vb));
+        prop_assert_eq!(headbody::lt(0, &a, &b), headbody::lt(Veblen::zero(), &va, &vb));
+        prop_assert_eq!(headbody::equiv(&a, &b), headbody::equiv(&va, &vb));
+    }
 
     #[test]
     fn headbody_matches_ordinals(a in worm(), b in worm()) {

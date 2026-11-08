@@ -262,6 +262,37 @@ impl Worm<u32> {
     pub fn battle(&self) -> Battle {
         Battle { current: Some(self.clone()), step: 0 }
     }
+
+    /// battle（m = 1, 2, 3, … で battle_step を繰り返す）が ⊤ に着くまでのステップ数。
+    /// `max_steps` を超えたら `None`。
+    ///
+    /// [`Worm::battle`] を数えるのと同じ値だが、worm を逆順（外側が末尾）の Vec で持つ。
+    /// 先頭の 0 を外すのは pop、展開は先頭の V の部分だけを書き換えるので、1 ステップの
+    /// 手間は「変わった文字の数」で済む（battle_step は毎回 worm 全体をコピーする）。
+    pub fn battle_length(&self, max_steps: u64) -> Option<u64> {
+        let mut v: Vec<u32> = self.0.iter().rev().copied().collect();
+        let mut steps = 0u64;
+        while let Some(&h) = v.last() {
+            if steps == max_steps {
+                return None;
+            }
+            steps += 1;
+            if h == 0 {
+                v.pop();
+                continue;
+            }
+            // 末尾から見て、h 未満の文字が最初に現れる手前までが V（逆順）
+            let cut = v.iter().rposition(|&x| x < h).map_or(0, |p| p + 1);
+            let mut v_dec = v.split_off(cut);
+            *v_dec.last_mut().expect("V は空でない") = h - 1;
+            let m = usize::try_from(steps).ok()?;
+            v.reserve(v_dec.len().checked_mul(m + 1)?);
+            for _ in 0..=m {
+                v.extend_from_slice(&v_dec);
+            }
+        }
+        Some(steps)
+    }
 }
 
 /// `1 + o(A)` を計算する補助関数（再帰の本体）。
@@ -476,5 +507,35 @@ mod tests {
         let steps = w("1 1").battle().count();
         assert!(steps > 3);
         assert_eq!(w("1 1").battle().last(), Some(Worm::top()));
+    }
+
+    #[test]
+    fn battle_length_matches_iterator() {
+        // 長さ ≤ 4・文字 ≤ 2 の worm をすべて試す（終わるものは数え切り、長いものは打ち切りの一致を見る）
+        let mut worms = vec![vec![]];
+        for _ in 0..4 {
+            let mut next = vec![];
+            for x in &worms {
+                for c in 0..3u32 {
+                    let mut y: Vec<u32> = x.clone();
+                    y.push(c);
+                    next.push(y);
+                }
+            }
+            worms.extend(next.clone());
+            worms.dedup();
+        }
+        worms.sort();
+        worms.dedup();
+        for letters in worms {
+            let a = Worm::new(letters);
+            for max in [0u64, 1, 5, 40] {
+                let by_iter = a.battle().skip(1).take(max as usize + 1).count() as u64;
+                let expect = if by_iter <= max { Some(by_iter) } else { None };
+                assert_eq!(a.battle_length(max), expect, "{a} max {max}");
+            }
+        }
+        assert_eq!(w("1 1").battle_length(u64::MAX), Some(w("1 1").battle().count() as u64 - 1));
+        assert_eq!(Worm::top().battle_length(0), Some(0));
     }
 }

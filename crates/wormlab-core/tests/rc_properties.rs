@@ -7,7 +7,7 @@
 use proptest::prelude::*;
 use std::cmp::Ordering;
 use wormlab_core::rc::{decide, entails, equivalent, Model};
-use wormlab_core::{Spf, Worm};
+use wormlab_core::{Spf, Veblen, Worm};
 
 /// 変数 p, q とモダリティ 0〜2 からなるランダムな強正値式
 fn spf() -> impl Strategy<Value = Spf> {
@@ -110,6 +110,22 @@ proptest! {
         for b in parts {
             prop_assert_eq!(decide(&a, &b).holds, entails(&a, &b), "{} ⊢ {}", a, b);
         }
+    }
+
+    // ---- 文字を順位に直す判定：文字を大小を保って順序数に写しても同じ答え ----
+
+    #[test]
+    fn ordinal_letters_agree(a in spf_big(), b in spf_big()) {
+        fn up(x: &Spf) -> Spf<Veblen> {
+            match x {
+                Spf::Top => Spf::Top,
+                Spf::Var(p) => Spf::Var(p.clone()),
+                Spf::And(l, r) => Spf::and(up(l), up(r)),
+                // n ↦ φ(n, 0)（狭義単調）
+                Spf::Dia(n, y) => Spf::dia(Veblen::phi(Veblen::nat(*n as u64), Veblen::zero()), up(y)),
+            }
+        }
+        prop_assert_eq!(entails(&a, &b), entails(&up(&a), &up(&b)), "{} ⊢ {}", a, b);
     }
 
     // ---- worm：順序数による比較と RC による比較が一致 ----

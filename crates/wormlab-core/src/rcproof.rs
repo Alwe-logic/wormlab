@@ -36,7 +36,7 @@
 //! 導出は DAG として持ち、同じ部分導出は共有する。正しさは検査器 [`check`] が保証する。
 
 use crate::latex::ToLatex;
-use crate::letter::Letter;
+use crate::letter::{Letter, Ranks};
 use crate::proof::{self, Builder, Calculus, Proof};
 use crate::rc::{self, ATree, Facts, SubDag, SubNode, Why};
 use crate::spf::Spf;
@@ -222,14 +222,20 @@ impl<L: Letter> Deriver<L> {
     // ---------------- 事実の飽和（どの事実が成り立つか） ----------------
 
     /// 局所規則の最小不動点（[`rc`] の判定法 2）を、理由つきで求める。
+    ///
+    /// 計算はモダリティを順位（u32）に直して行う（大小しか使わないので）。部分式の番号は
+    /// 直す前と後で同じ（順位づけは単射なので、まとめ方が変わらない）。
     fn saturate(&self, rhs: &Spf<L>) -> (SubDag<L>, Facts) {
+        let labels = self.nodes.iter().filter_map(|n| n.parent.as_ref().map(|(_, k)| k.clone()));
+        let r = Ranks::new(labels.chain(rhs.modalities()));
         let t = ATree {
             vars: self.nodes.iter().map(|n| n.vars.clone()).collect(),
-            kids: self.nodes.iter().map(|n| n.children.clone()).collect(),
-            parent: self.nodes.iter().map(|n| n.parent.clone()).collect(),
+            kids: self.nodes.iter().map(|n| n.children.iter().map(|(k, y)| (r.of(k), *y)).collect()).collect(),
+            parent: self.nodes.iter().map(|n| n.parent.as_ref().map(|(p, k)| (*p, r.of(k)))).collect(),
         };
-        let d = SubDag::new(rhs);
-        let f = rc::saturate(&t, &d, true);
+        let (d, dr) = (SubDag::new(rhs), SubDag::new(&rc::ranked(rhs, &r)));
+        debug_assert_eq!(d.len(), dr.len(), "順位に直しても部分式のまとめ方は同じ");
+        let f = rc::saturate(&t, &dr, true);
         (d, f)
     }
 
