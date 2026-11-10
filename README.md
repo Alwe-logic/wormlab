@@ -37,6 +37,7 @@ cargo run -q -- ord "2 0 1 1"                 # 順序数・標準形・Π 順�
 cargo run -q -- cmp "1 1" "1 0 1 0 1"         # <_0 で比較（3 つの方法で確認）
 cargo run -q -- table "1 1" "2" "3" > t.csv   # 複数の worm を CSV に
 cargo run -q -- battle "1 1" 20               # worm battle
+cargo run -q -- battle 3 2000                 # 長い battle も繰り返しでまとめたまま進める（2000 ステップで 25 万文字）
 cargo run -q -- rc "<2>p |- <0><1>p"          # RC で判定（真なら導出を作って検査、偽なら反例モデル）
 cargo run -q -- rc "<1>p & <0>q |- <1>(p & <0>q)" --proof   # RC の導出を全行表示
 cargo run -q -- rc "<ω+1>p & <ω>q |- <ω+1>(p & <ω>q)"      # モダリティが順序数でも可
@@ -56,6 +57,9 @@ cargo run -q -- bcmp "((()))" "(()())(())"    # 括弧語を順序数を使わ�
 cargo run -q -- bc "((()))p |- ()(())p"       # Bracket Calculus で判定・導出・検査（--proof で全行）
 cargo run -q -- bc "((((())))) |- ()(((())))" # 括弧語どうしの比較 φ(ε_0,0) > ε_0 を BC で証明
 cargo run --release -p wormlab-core --example bc_sizes   # BC と RC_Γ0 の導出の大きさの比較
+cargo run --release -p wormlab-core --example bc_bounds  # BC の副条件の数と導出の大きさの上界の確認
+cargo run -q -- bwc "((())) |- ()(())"       # 括弧語だけの体系 BWC で判定・導出（BC と照合、--proof・--latex）
+cargo run --release -p wormlab-core --example bwc_sizes  # BWC と BC の導出の大きさの比較
 cargo run -q -- bi "<2>_2<2>_3 T |- <1>(<2>_3 T)"      # RC_BI（Pakhomov–Lazar）で判定：Γ₀ > φ_ω(0)
 cargo run -q -- bi "D T |- <2>_2 T" --model   # 偽なら反例モデル M_A を表示
 cargo run -q -- bimodel "D <1> T"             # 有限モデル M_A とフレーム条件の検査
@@ -64,12 +68,22 @@ cargo run -q -- bicmp "<1>_3<2>_3 T" "<2>_2<2>_3 T"     # RC_BI の順序 <¹₁
 cargo run -q -- bifs "<2>_2<2>_3 T" 4         # 式の形と基本列 (A)_1..4（Γ₀ への基本列）
 cargo run -q -- bibattle "D T"                # RC_BI の式の battle
 cargo run --release -p wormlab-core --example rcbi_order # 線形性（Thm 4.11）と基本列の共終性の実験
-cargo run -q -- thm52 3                       # ATR₀ から独立な命題の出発点
 cargo run -q -- fs "ε_0" 5                    # 標準の基本列 ε_0[n] と、worm が作る列の比較
 cargo run -q -- hardy "ω^2" 10                # Hardy 関数 H_α(n)・急増加関数 f_α(n)
-cargo run -q -- blen "ω^2 + ω"                # worm battle と標準 battle の長さ
+cargo run -q -- blen "ω^2 + ω·4"              # worm battle（ε₀ 未満は閉じた形でちょうど）と標準 battle の長さ
+cargo run -q --release -- blen "ω^2 + ω·18"   # 多倍長：31 万桁の長さ（--full で全桁、--bits=N で途中の値の上限）
+cargo run -q -- thm52 2                       # G(2) > 2^(4.23×10^455)
+cargo run -q -- rules bwc                     # 公理と規則の一覧（rc・wc・bc・bwc・rcbi、省略なら全部。--json 可）
+cargo run -q -- expr "e^(ω + 1)(1) + ψ(Ω + ψ(Ω·2 + 1))"  # 式（+・·・^・φ・ε・超指数 e^α・ψ）を、使った定義つきで 1 段ずつ標準形に
+cargo run -q -- defs                          # 式の計算で使う定義の一覧（Veblen 関数・超指数関数・ψ など、出典つき）
+cargo run -q -- forms "φ(2, 0) + ε_0·2 + 3"   # 同じ順序数をいろいろな標準形で（Veblen 形・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 cargo run --release -p wormlab-core --example battles   # battle の長さの比較表
 cargo run -q -- wclt 0 "<ω><ω>" "<ε_0>"       # 順序数の worm の WC 証明
+cargo run -q -- ordinal "ψ(ε_(Ω + 1))"        # Γ0 を超える：Ω と ψ（Worms and spiders の ψ、ψ(0) = Γ0）
+cargo run -q -- psi "Ω + ψ(Ω·2 + 1)"          # ψ(ξ) の崩し（ξ ∉ C(ξ) なら ψ(ξ) = ψ(z0)）
+cargo run -q -- iworm "((()))Ω"               # impredicative worm：値は Bachmann–Howard 順序数 ψ(ε_(Ω+1))
+cargo run -q -- iwormof "ψ(Ω)"                # 順序数 → impredicative worm（ψ(e^{Ω+1}1) 未満）
+cargo run -q -- calc "ω + 1" '^' "ω + 2"       # 順序数の演算（+・*・^）と計算の過程（--latex で align*）
 cargo doc --open                              # ドキュメントをブラウザで開く
 ```
 
@@ -94,7 +108,7 @@ cargo run -q -- battle "2 0 2" 10 --latex                      # battle の表
 - モデル：TikZ（Web の図と同じ配置）。`--rel=all` で閉包後の辺も、`--rel=11,down` のように関係を選んでも描ける
   （名前は記号を省いて書く：R¹₁ → `11`、R²₂ → `22`、R↓ → `down`、R∇ → `nabla`、RC の R_1 → `1`）
 - 使うパッケージは amsmath・amssymb・bussproofs・tikz（`--standalone` のプリアンブルに入っている）
-- `table`・`lt`・`thm52`・`hardy`・`blen` は対象外
+- `table`・`lt`・`thm52`・`hardy`・`blen`・`rules`・`defs` は対象外
 
 ## ロードマップ
 
@@ -111,9 +125,12 @@ cargo run -q -- battle "2 0 2" 10 --latex                      # battle の表
 - [x] 順序数の標準基本列 α[n]（Γ0 未満）、Hardy 階層・急増加関数、battle の長さの比較
 - [x] RC の導出の構成と検査器（変数・∧ を含む一般の式、順序数モダリティ）
 - [x] Bracket Calculus：順序数を使わない括弧語の比較・正規形、BC の判定・導出・検査器
+- [x] BC の研究：導出の大きさの上界、括弧語だけの体系 BWC、worm の基本列の閉じた形と battle の長さ（G(2) > 2^128）
+- [x] ψ 表記（Ω・ψ、任意の引数の崩し）と impredicative worm（Worms and spiders §6）
+- [ ] spiders（Worms and spiders §7、Buchholz 型の ψ_η と Conjecture 7.27）
 - [x] RC_BI 手順 1：式・パーサ、有限モデル M_A による閉じた式の判定（arXiv:2610.20115）
 - [x] RC_BI 手順 2：順序 <¹₁・≡¹₁、基本列 (A)_n、線形性の検証
 - [ ] RC_BI 手順 3：o(A) の計算（ε₀ → Γ₀ → Bachmann–Howard）
-- [x] 段階3: Web 可視化（Astro ＋ WebAssembly）：battle・順序数電卓・証明・Kripke モデル
+- [x] 段階3: Web 可視化（Astro ＋ WebAssembly）：battle・順序数電卓・証明（証明図）・規則の一覧・Kripke モデル
 - [ ] Web の公開（claude.ai のページ、GitHub Pages）
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP

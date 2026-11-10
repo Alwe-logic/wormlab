@@ -35,6 +35,7 @@
 //!
 //! 導出は DAG として持ち、同じ部分導出は共有する。正しさは検査器 [`check`] が保証する。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::letter::{Letter, Ranks};
 use crate::proof::{self, Builder, Calculus, Proof};
@@ -151,9 +152,9 @@ impl<L: Letter> Calculus for Rc<L> {
                 },
                 _ => false,
             },
-            _ => return Err("規則と前提の個数が合わない".to_string()),
+            _ => return Err(tr("規則と前提の個数が合わない", "wrong number of premises for the rule").to_string()),
         };
-        if ok { Ok(()) } else { Err(format!("{rule} の形になっていない")) }
+        if ok { Ok(()) } else { Err(format!("{rule} {}", tr("の形になっていない", "does not match"))) }
     }
 }
 

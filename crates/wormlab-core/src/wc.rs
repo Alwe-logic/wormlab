@@ -32,6 +32,7 @@
 //! 木に展開した大きさは O(n³)、比較（head/body）は標準木のノード番号で
 //! メモするので判定は O(|A|·|B|) 時間（algorithms.md §1, §1c）。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::headbody::CtCompare;
 use crate::letter::{Letter, Ranks};
@@ -118,32 +119,32 @@ impl<L: Letter> Calculus for Wc<L> {
         let fail = |msg: &str| Err(msg.to_string());
         match (rule, prem) {
             (WcRule::A1, []) => {
-                if r.is_empty() { Ok(()) } else { fail("A1 の右辺は ⊤ でなければならない") }
+                if r.is_empty() { Ok(()) } else { fail(tr("A1 の右辺は ⊤ でなければならない", "the right side of A1 must be ⊤")) }
             }
             (WcRule::A2, []) => match (l, r) {
                 ([a, b, x @ ..], [c0, y @ ..]) if a == b && b == c0 && x == y => Ok(()),
-                _ => fail("A2 の形 ααX ⊢ αX ではない"),
+                _ => fail(tr("A2 の形 ααX ⊢ αX ではない", "not of the A2 form ααX ⊢ αX")),
             },
             (WcRule::A3, []) => match (l, r) {
                 ([a, x @ ..], [b, y @ ..]) if a > b && x == y => Ok(()),
-                _ => fail("A3 の形 αX ⊢ βX（α > β）ではない"),
+                _ => fail(tr("A3 の形 αX ⊢ βX（α > β）ではない", "not of the A3 form αX ⊢ βX (α > β)")),
             },
             (WcRule::Cut, [p, q]) => {
                 if p.lhs == c.lhs && p.rhs == q.lhs && q.rhs == c.rhs {
                     Ok(())
                 } else {
-                    fail("Cut の前提と結論が噛み合わない")
+                    fail(tr("Cut の前提と結論が噛み合わない", "the premises of Cut do not match the conclusion"))
                 }
             }
             (WcRule::Nec, [p]) => match (l, r) {
                 ([g, x @ ..], [h, y @ ..]) if g == h && x == p.lhs.letters() && y == p.rhs.letters() => {
                     Ok(())
                 }
-                _ => fail("Nec の形 A ⊢ B ⇒ αA ⊢ αB ではない"),
+                _ => fail(tr("Nec の形 A ⊢ B ⇒ αA ⊢ αB ではない", "not of the Nec form A ⊢ B ⇒ αA ⊢ αB")),
             },
             (WcRule::R3, [p, q]) => {
                 let Some(alpha) = q.rhs.letters().first() else {
-                    return fail("R3 の第 2 前提の右辺が αC の形ではない");
+                    return fail(tr("R3 の第 2 前提の右辺が αC の形ではない", "the right side of the second premise of R3 is not of the form αC"));
                 };
                 let b = p.rhs.letters();
                 let ok = p.lhs == c.lhs
@@ -152,9 +153,9 @@ impl<L: Letter> Calculus for Wc<L> {
                     && r.len() == b.len() + q.rhs.len()
                     && r[..b.len()] == *b
                     && r[b.len()..] == *q.rhs.letters();
-                if ok { Ok(()) } else { fail("R3 の条件を満たさない") }
+                if ok { Ok(()) } else { fail(tr("R3 の条件を満たさない", "the side condition of R3 fails")) }
             }
-            _ => fail("規則と前提の個数が合わない"),
+            _ => fail(tr("規則と前提の個数が合わない", "wrong number of premises for the rule")),
         }
     }
 }
@@ -917,7 +918,7 @@ impl<L: Letter> Sink<L> for Assembler<'_, L> {
 pub fn prove<L: Letter>(a: &Worm<L>, b: &Worm<L>) -> Result<WcProof<L>, String> {
     let mut d = Decider::new(a.letters(), b.letters());
     if !d.decide_root() {
-        return Err(format!("{a} ⊢ {b} は成り立たない（WC でも RC でも証明できない）"));
+        return Err(format!("{a} ⊢ {b} {}", tr("は成り立たない（WC でも RC でも証明できない）", "does not hold (provable in neither WC nor RC)")));
     }
     let mut p = Prover::with_compare(a.letters(), b.letters(), d.into_compare());
     let root = p.prove_root();

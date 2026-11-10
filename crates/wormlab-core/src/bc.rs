@@ -46,6 +46,7 @@
 //!   副条件に出てくるモダリティは a, b の文字と ⊤ だけで、入れ子が必ず浅くなるので止まる。
 //!   正規形でないモダリティ (a) は、副条件 a ⊢ nf(a) を使って正規形 (nf(a)) と行き来する。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::bracket::{Bracket, NfBracket};
 use crate::proof::{self, Builder, Calculus, Proof};
@@ -233,7 +234,11 @@ pub struct ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}（{} 文字目付近）: {}", self.msg, self.pos, self.input)
+        if crate::i18n::is_en() {
+            write!(f, "{} (near character {}): {}", self.msg, self.pos, self.input)
+        } else {
+            write!(f, "{}（{} 文字目付近）: {}", self.msg, self.pos, self.input)
+        }
     }
 }
 
@@ -338,7 +343,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 let a = self.formula()?;
                 if !self.eat(')') {
-                    return self.error("')' が必要です");
+                    return self.error(tr("')' が必要です", "expected ')'"));
                 }
                 Ok(a)
             }
@@ -348,12 +353,12 @@ impl<'a> Parser<'a> {
                 let start = self.pos;
                 let Some(a) = self.word() else {
                     self.pos = start;
-                    return self.error("括弧語が読めません");
+                    return self.error(tr("括弧語が読めません", "cannot read the bracket word"));
                 };
                 // ⟨⊤⟩ や ⟨()()⊤⟩ のような末尾の ⊤ は許す
                 let _ = self.eat('⊤') || self.eat('T');
                 if !self.eat(close) {
-                    return self.error(&format!("'{close}' が必要です"));
+                    return self.error(&if crate::i18n::is_en() { format!("expected '{close}'") } else { format!("'{close}' が必要です") });
                 }
                 Ok(Formula::dia(a, self.unary()?))
             }
@@ -374,17 +379,17 @@ impl<'a> Parser<'a> {
                     _ if c.is_ascii_lowercase() => Ok(Formula::Var(name)),
                     _ => {
                         self.pos = start;
-                        self.error("変数名は英小文字で始めてください")
+                        self.error(tr("変数名は英小文字で始めてください", "variable names must start with a lowercase letter"))
                     }
                 }
             }
-            Some(_) => self.error("式が読めません"),
-            None => self.error("式が途中で終わっています"),
+            Some(_) => self.error(tr("式が読めません", "cannot read the formula")),
+            None => self.error(tr("式が途中で終わっています", "the formula ends too early")),
         }
     }
 
     fn finish(&mut self) -> Result<(), ParseError> {
-        if self.peek().is_some() { self.error("余分な文字があります") } else { Ok(()) }
+        if self.peek().is_some() { self.error(tr("余分な文字があります", "unexpected characters after the formula")) } else { Ok(()) }
     }
 }
 
@@ -456,7 +461,7 @@ impl FromStr for BSeq {
         let (l, r) = s.split_once("⊢").or_else(|| s.split_once("|-")).ok_or_else(|| ParseError {
             input: s.to_string(),
             pos: 0,
-            msg: "'⊢' または '|-' が必要です".to_string(),
+            msg: tr("'⊢' または '|-' が必要です", "expected '⊢' or '|-'").to_string(),
         })?;
         Ok(BSeq::new(l.parse()?, r.parse()?))
     }
@@ -555,9 +560,9 @@ impl Calculus for Bc {
                 },
                 _ => false,
             },
-            _ => return Err("規則と前提の個数が合わない".to_string()),
+            _ => return Err(tr("規則と前提の個数が合わない", "wrong number of premises for the rule").to_string()),
         };
-        if ok { Ok(()) } else { Err(format!("{rule} の形になっていない")) }
+        if ok { Ok(()) } else { Err(format!("{rule} {}", tr("の形になっていない", "does not match"))) }
     }
 }
 
@@ -745,7 +750,7 @@ impl Deriver {
                 let s = self.side_le(a, a2)?;
                 Ok(self.b.add(BcRule::R3a, vec![inner, s], goal))
             }
-            _ => Err(format!("橋渡しできない形（バグです）: {goal}")),
+            _ => Err(format!("{}: {goal}", tr("橋渡しできない形（バグです）", "cannot bridge (a bug)"))),
         }
     }
 }

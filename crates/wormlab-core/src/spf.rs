@@ -6,6 +6,7 @@
 //!
 //! 否定も含意も ∨ もない。worm はちょうど「∧ を含まない閉じた強正値式」。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::letter::Letter;
 use crate::worm::Worm;
@@ -146,7 +147,11 @@ pub struct ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}（{} 文字目付近）: {}", self.msg, self.pos, self.input)
+        if crate::i18n::is_en() {
+            write!(f, "{} (near character {}): {}", self.msg, self.pos, self.input)
+        } else {
+            write!(f, "{}（{} 文字目付近）: {}", self.msg, self.pos, self.input)
+        }
     }
 }
 
@@ -205,7 +210,7 @@ impl<'a, L: Letter> Parser<'a, L> {
         }
         if self.pos >= self.chars.len() {
             self.pos = start;
-            return self.error(&format!("'{close}' が必要です"));
+            return self.error(&if crate::i18n::is_en() { format!("expected '{close}'") } else { format!("'{close}' が必要です") });
         }
         let s: String = self.chars[start..self.pos].iter().collect();
         self.pos += 1; // 閉じ括弧
@@ -213,7 +218,7 @@ impl<'a, L: Letter> Parser<'a, L> {
             Some(n) => Ok(n),
             None => {
                 self.pos = start;
-                self.error("モダリティの番号が読めません")
+                self.error(tr("モダリティの番号が読めません", "cannot read the modality index"))
             }
         }
     }
@@ -234,7 +239,7 @@ impl<'a, L: Letter> Parser<'a, L> {
                 self.pos += 1;
                 let a = self.formula()?;
                 if !self.eat(')') {
-                    return self.error("')' が必要です");
+                    return self.error(tr("')' が必要です", "expected ')'"));
                 }
                 Ok(a)
             }
@@ -251,17 +256,17 @@ impl<'a, L: Letter> Parser<'a, L> {
                     _ if c.is_ascii_lowercase() => Ok(Spf::Var(name)),
                     _ => {
                         self.pos = start;
-                        self.error("変数名は英小文字で始めてください")
+                        self.error(tr("変数名は英小文字で始めてください", "variable names must start with a lowercase letter"))
                     }
                 }
             }
-            Some(_) => self.error("式が読めません"),
-            None => self.error("式が途中で終わっています"),
+            Some(_) => self.error(tr("式が読めません", "cannot read the formula")),
+            None => self.error(tr("式が途中で終わっています", "the formula ends too early")),
         }
     }
 
     fn finish(&mut self) -> Result<(), ParseError> {
-        if self.peek().is_some() { self.error("余分な文字があります") } else { Ok(()) }
+        if self.peek().is_some() { self.error(tr("余分な文字があります", "unexpected characters after the formula")) } else { Ok(()) }
     }
 }
 
@@ -332,7 +337,7 @@ impl<L: Letter> FromStr for Sequent<L> {
             .ok_or_else(|| ParseError {
                 input: s.to_string(),
                 pos: 0,
-                msg: "'⊢' または '|-' が必要です".to_string(),
+                msg: tr("'⊢' または '|-' が必要です", "expected '⊢' or '|-'").to_string(),
             })?;
         Ok(Sequent { lhs: l.parse()?, rhs: r.parse()? })
     }

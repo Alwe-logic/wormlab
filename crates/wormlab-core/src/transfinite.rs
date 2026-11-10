@@ -1,4 +1,4 @@
-//! 文字が順序数（Γ0 未満）の worm の順序数 o(A)・逆写像・Π 順序数。
+//! 文字が順序数（Γ0 未満、Ω・ψ を含む数も可）の worm の順序数 o(A)・逆写像・Π 順序数。
 //!
 //! 出典：D. Fernández-Duque & J. J. Joosten, "Well-orders in the transfinite
 //! Japaridze algebra"
@@ -111,8 +111,9 @@ fn inv(alpha: &Veblen) -> Vec<Veblen> {
         shift_up(&one, &inv(&beta))
     } else {
         // ω^β = β：α は主項 φ(a, b)（a ≥ 1）。e_a(1 + b) = φ(a, b) なので A = ω^a↑inv(1 + b)
-        let (a, b) = alpha.as_phi().expect("ε 型の数は単独の主項");
-        let shift = Veblen::omega_pow(a.clone());
+        // （α が強臨界数 s（Ω・ψ(x)）なら φ(s, 0) とみなして A = ⟨s⟩⊤）
+        let (a, b) = alpha.phi_parts().expect("ε 型の数は単独の主項");
+        let shift = Veblen::omega_pow(a);
         shift_up(&shift, &inv(&b.one_plus()))
     }
 }
@@ -184,6 +185,18 @@ mod tests {
         assert_eq!(o("<ω^2>"), "φ(2, 0)");
         assert_eq!(o("<ω^ω>"), "φ(ω, 0)");
         assert_eq!(o("<ε_0>"), "φ(ε_0, 0)");
+    }
+
+    #[test]
+    fn impredicative_letters() {
+        // Worms and spiders, Cor 6.16・Lemma 6.30：o(⟨Ω⟩⊤) = Ω、e^{Ω+1}(1) = e^Ω(ω) = φ(Ω, ω)
+        assert_eq!(o("<Ω>"), "Ω");
+        assert_eq!(o("<Ω><Ω>"), "φ(Ω, 1)");
+        assert_eq!(o("<Ω + 1>"), "φ(Ω, ω)");
+        assert_eq!(o("<ψ(0)>"), "ψ(0)");
+        assert_eq!(o("<1><Ω>"), "ω^(Ω + 1)");
+        assert_eq!(o("<ω><Ω>"), "ε_(Ω + 1)");
+        assert_eq!(o("<0><Ω>"), "Ω + 1");
     }
 
     #[test]

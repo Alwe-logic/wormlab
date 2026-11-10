@@ -33,6 +33,7 @@
 //! （仕組みは [`BracketOrder`] を参照）。両者が一致することはテストで確かめる。
 //! 正規形の括弧語は [`NfBracket`] として worm・RC の「文字」に使える。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::headbody::is_bnf;
 use crate::letter::Letter;
@@ -95,9 +96,18 @@ impl Bracket {
 
     /// α < Γ0 を表す括弧語（正規形）。
     /// α を表す標準形の worm を作り、その各文字を再帰的に括弧語にする。
+    ///
+    /// Ω・ψ を含む数（Γ0 以上）は括弧語で表せない（強臨界数 s の worm は ⟨s⟩⊤ で、
+    /// 文字が自分自身になり再帰が止まらない）ので、呼ぶ前に [`Veblen::is_predicative`] で確かめること。
     pub fn from_ordinal(alpha: &Veblen) -> Bracket {
+        assert!(alpha.is_predicative(), "Γ0 以上の順序数 {alpha} は括弧語で表せません");
         let w = Worm::from_veblen(alpha);
         Bracket(w.letters().iter().map(Bracket::from_ordinal).collect())
+    }
+
+    /// 括弧の対の数（語の大きさ）。
+    pub fn pairs(&self) -> usize {
+        self.0.iter().map(|l| 1 + l.pairs()).sum()
     }
 
     /// 同じ順序数を表す正規形の括弧語。
@@ -154,6 +164,12 @@ impl Bracket {
     /// 文字は順序数と組にして `Rc` で共有する。先頭の ⊤ を外すのは pop、展開は先頭の
     /// b の部分だけ。文字の順序数は文字を作ったときに 1 回だけ計算する。
     pub fn battle_length(&self, max_steps: u64) -> Option<u64> {
+        self.battle_length_capped(max_steps, usize::MAX).ok()
+    }
+
+    /// [`Bracket::battle_length`] に、語の長さ（文字の数）の上限 `max_len` を付けたもの。
+    /// ⊤ に着いたら `Ok(ステップ数)`、回数か長さの上限で止めたら `Err(そこまでのステップ数)`。
+    pub fn battle_length_capped(&self, max_steps: u64, max_len: usize) -> Result<u64, u64> {
         // 文字と、その順序数の組
         type Cell = Rc<(Bracket, Veblen)>;
         let mk = |b: Bracket| -> Cell {
@@ -163,8 +179,8 @@ impl Bracket {
         let mut v: Vec<Cell> = self.0.iter().rev().map(|b| mk(b.clone())).collect();
         let mut steps = 0u64;
         while let Some(top) = v.last().cloned() {
-            if steps == max_steps {
-                return None;
+            if steps == max_steps || v.len() > max_len {
+                return Err(steps);
             }
             steps += 1;
             if top.0.is_top() {
@@ -175,14 +191,15 @@ impl Bracket {
             let o1 = &top.1;
             let cut = v.iter().rposition(|x| x.1 < *o1).map_or(0, |p| p + 1);
             let mut b = v.split_off(cut);
-            let n = usize::try_from(steps).ok()?;
+            let n = usize::try_from(steps).map_err(|_| steps)?;
             *b.last_mut().expect("b は空でない") = mk(top.0.fundamental(n).expect("a_1 ≠ ⊤"));
-            v.reserve(b.len().checked_mul(n + 1)?);
+            let grow = b.len().checked_mul(n + 1).filter(|g| v.len() + g <= max_len).ok_or(steps)?;
+            v.reserve(grow);
             for _ in 0..=n {
                 v.extend(b.iter().cloned());
             }
         }
-        Some(steps)
+        Ok(steps)
     }
 
     /// 自然数の worm を括弧語にする（文字 n は ()^n）。
@@ -630,7 +647,7 @@ pub struct ParseBracketError(pub String);
 
 impl fmt::Display for ParseBracketError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "括弧語として読めません: {}", self.0)
+        write!(f, "{}: {}", tr("括弧語として読めません", "cannot read as a bracket word"), self.0)
     }
 }
 

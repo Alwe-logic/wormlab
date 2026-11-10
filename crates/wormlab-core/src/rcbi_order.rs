@@ -19,6 +19,7 @@
 //!
 //! 近似の定義は [`approx`] を参照。
 
+use crate::i18n::tr;
 use crate::rcbi::{Formula, Rank, entails};
 use std::cmp::Ordering;
 
@@ -81,7 +82,7 @@ pub fn is_limit(a: &Formula) -> bool {
 /// 式の形を求める。後続形なら直前の式も求める（B_i の最大を <¹₁ で選ぶ）。
 pub fn form(a: &Formula) -> Result<Form, String> {
     if !a.in_wbi() {
-        return Err(format!("{a} は W_BI の式ではありません（変数・∇・⟨1⟩_ω を含まない式だけ）"));
+        return Err(format!("{a} {}", tr("は W_BI の式ではありません（変数・∇・⟨1⟩_ω を含まない式だけ）", "is not a W_BI formula (only formulas without variables, ∇ or ⟨1⟩_ω)")));
     }
     if is_limit(a) {
         return Ok(Form::Limit);
@@ -90,14 +91,20 @@ pub fn form(a: &Formula) -> Result<Form, String> {
     let mut best: Option<&Formula> = None;
     for c in conjuncts(a) {
         let Formula::Dia(1, Rank::Fin(1), b) = c else {
-            return Err(format!("想定外の成分（バグです）: {c}"));
+            return Err(format!("{}: {c}", tr("想定外の成分（バグです）", "unexpected component (a bug)")));
         };
         best = Some(match best {
             None => b,
             Some(cur) => match compare(cur, b) {
                 Some(Ordering::Less) => b,
                 Some(_) => cur,
-                None => return Err(format!("{cur} と {b} が比較できません（Thm 4.11 に反する）")),
+                None => {
+                    return Err(if crate::i18n::is_en() {
+                        format!("{cur} and {b} are incomparable (contradicts Thm 4.11)")
+                    } else {
+                        format!("{cur} と {b} が比較できません（Thm 4.11 に反する）")
+                    });
+                }
             },
         });
     }

@@ -17,6 +17,7 @@
 //! M_A の作り方は [`Model::of`] を参照。RC の標準木の閉包（[`crate::rc`]）と同じ発想だが、
 //! フレーム条件の一部が「点の存在」を要求するので、閉包の前に点を足しておく。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::bitset::BitSet;
 use std::collections::BTreeSet;
@@ -271,7 +272,11 @@ pub struct ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}（{} 文字目付近）: {}", self.msg, self.pos, self.input)
+        if crate::i18n::is_en() {
+            write!(f, "{} (near character {}): {}", self.msg, self.pos, self.input)
+        } else {
+            write!(f, "{}（{} 文字目付近）: {}", self.msg, self.pos, self.input)
+        }
     }
 }
 
@@ -343,7 +348,7 @@ impl<'a> Parser<'a> {
             }
         }
         if !digits.is_empty() {
-            return digits.parse().map(|n| Some(Rank::Fin(n))).or_else(|_| self.error("添字が大きすぎます"));
+            return digits.parse().map(|n| Some(Rank::Fin(n))).or_else(|_| self.error(tr("添字が大きすぎます", "the index is too large")));
         }
         if at(self, 0) != Some('_') {
             return Ok(None);
@@ -367,7 +372,7 @@ impl<'a> Parser<'a> {
             Ok(n) => Ok(Some(Rank::Fin(n))),
             Err(_) => {
                 self.pos = start;
-                self.error("添字が読めません（数字か ω）")
+                self.error(tr("添字が読めません（数字か ω）", "cannot read the index (a number or ω)"))
             }
         }
     }
@@ -380,15 +385,19 @@ impl<'a> Parser<'a> {
                 let i = match self.peek() {
                     Some('1') => 1u8,
                     Some('2') => 2u8,
-                    _ => return self.error("⟨1⟩ か ⟨2⟩ が必要です"),
+                    _ => return self.error(tr("⟨1⟩ か ⟨2⟩ が必要です", "expected ⟨1⟩ or ⟨2⟩")),
                 };
                 self.pos += 1;
                 if !self.eat(close) {
-                    return self.error(&format!("'{close}' が必要です"));
+                    return self.error(&if crate::i18n::is_en() { format!("expected '{close}'") } else { format!("'{close}' が必要です") });
                 }
                 let alpha = self.rank()?.unwrap_or(Rank::Fin(i as u32));
                 if !valid_modality(i, alpha) {
-                    return self.error(&format!("⟨{i}⟩{alpha} はモダリティではありません（⟨1⟩ は添字 1 以上か ω、⟨2⟩ は 2 以上の有限）"));
+                    return self.error(&if crate::i18n::is_en() {
+                        format!("⟨{i}⟩{alpha} is not a modality (⟨1⟩ takes an index ≥ 1 or ω, ⟨2⟩ a finite index ≥ 2)")
+                    } else {
+                        format!("⟨{i}⟩{alpha} はモダリティではありません（⟨1⟩ は添字 1 以上か ω、⟨2⟩ は 2 以上の有限）")
+                    });
                 }
                 Ok(Formula::dia(i, alpha, self.unary()?))
             }
@@ -408,7 +417,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 let a = self.formula()?;
                 if !self.eat(')') {
-                    return self.error("')' が必要です");
+                    return self.error(tr("')' が必要です", "expected ')'"));
                 }
                 Ok(a)
             }
@@ -425,17 +434,17 @@ impl<'a> Parser<'a> {
                     _ if c.is_ascii_lowercase() => Ok(Formula::Var(name)),
                     _ => {
                         self.pos = start;
-                        self.error("変数名は英小文字で始めてください")
+                        self.error(tr("変数名は英小文字で始めてください", "variable names must start with a lowercase letter"))
                     }
                 }
             }
-            Some(_) => self.error("式が読めません"),
-            None => self.error("式が途中で終わっています"),
+            Some(_) => self.error(tr("式が読めません", "cannot read the formula")),
+            None => self.error(tr("式が途中で終わっています", "the formula ends too early")),
         }
     }
 
     fn finish(&mut self) -> Result<(), ParseError> {
-        if self.peek().is_some() { self.error("余分な文字があります") } else { Ok(()) }
+        if self.peek().is_some() { self.error(tr("余分な文字があります", "unexpected characters after the formula")) } else { Ok(()) }
     }
 }
 
@@ -478,7 +487,7 @@ impl FromStr for Sequent {
         let (l, r) = s.split_once("⊢").or_else(|| s.split_once("|-")).ok_or_else(|| ParseError {
             input: s.to_string(),
             pos: 0,
-            msg: "'⊢' または '|-' が必要です".to_string(),
+            msg: tr("'⊢' または '|-' が必要です", "expected '⊢' or '|-'").to_string(),
         })?;
         Ok(Sequent { lhs: l.parse()?, rhs: r.parse()? })
     }
@@ -526,11 +535,17 @@ struct Pre {
     kinds: Vec<PointKind>,
     edges: Vec<(usize, Edge, usize)>,
     n_fin: u32,
+    /// ↓B の中間点を、M_B で双模倣な行き先ごとに 1 つにまとめるか（[`Model::of`] は既定でまとめる）
+    share: bool,
+    /// 閉包済みの領域の点か（まとめるときは、↓B の B の領域を M_B の双模倣の商で置き換える。
+    /// その点はもう閉包とコピー点が済んでいるので、コピー点を作らない）
+    closed: Vec<bool>,
 }
 
 impl Pre {
     fn point(&mut self, k: PointKind) -> usize {
         self.kinds.push(k);
+        self.closed.push(false);
         self.kinds.len() - 1
     }
 
@@ -567,7 +582,14 @@ impl Pre {
                 // M_B（閉包まで）を、B の点だけ（番号 rb..end）で作る
                 let (start, end) = (rb, self.kinds.len());
                 let sub = Pre {
-                    kinds: self.kinds[start..end].to_vec(),
+                    // コピー点が指す点の番号も、領域の中の番号に直す
+                    kinds: self.kinds[start..end]
+                        .iter()
+                        .map(|&k| match k {
+                            PointKind::Copy(b) => PointKind::Copy(b - start),
+                            k => k,
+                        })
+                        .collect(),
                     edges: self
                         .edges
                         .iter()
@@ -575,11 +597,20 @@ impl Pre {
                         .map(|&(x, e, y)| (x - start, e, y - start))
                         .collect(),
                     n_fin: self.n_fin,
+                    share: self.share,
+                    closed: self.closed[start..end].to_vec(),
                 };
                 let mb = Model::from_pre(sub);
                 // M_B で根から R¹₁ で行ける、前モデルの点 b_i
-                let succ: Vec<usize> =
+                let mut succ: Vec<usize> =
                     mb.r1[0][0].iter().filter(|&y| y < end - start).map(|y| y + start).collect();
+                if self.share {
+                    // B の点から B の外への辺はない（閉包の規則で外から入る辺しか増えない）ので、
+                    // B の領域の閉包は M_B の閉包と同じで（Lemma 3.14(i)）、双模倣も M_B の中で決まる。
+                    // そこで B の領域を M_B の双模倣の商（閉包済み、コピー点も含む）で置き換え、
+                    // 中間点は類ごとに 1 つにする。点の数は ↓ の入れ子について多項式になる
+                    succ = self.replace_by_quotient(start, &mb);
+                }
                 let z = self.point(PointKind::Zero);
                 self.edges.push((root, Edge::One(Rank::Omega), z));
                 for bi in succ {
@@ -589,6 +620,66 @@ impl Pre {
                 }
             }
         }
+    }
+}
+
+impl Pre {
+    /// 番号 start 以降（B の領域）を、閉包済みのモデル mb（その領域で作ったもの）の双模倣の商で
+    /// 置き換える。商の点は閉包済みの印をつけ、辺は閉包後の関係をそのまま前モデルの辺にする。
+    /// 返り値：mb の根から R¹₁ で行ける前モデルの点の類（新しい番号、重複なし）。
+    fn replace_by_quotient(&mut self, start: usize, mb: &Model) -> Vec<usize> {
+        let classes = mb.bisim_classes();
+        // 根（mb の点 0）の類が新しい番号 start になるように、類の番号を出てくる順に振り直す
+        let mut renum: Vec<Option<usize>> = vec![None; classes.len()];
+        let mut reps: Vec<usize> = Vec::new();
+        for (x, &c) in classes.iter().enumerate() {
+            if renum[c].is_none() {
+                renum[c] = Some(reps.len());
+                reps.push(x);
+            }
+        }
+        let new_of = |x: usize| start + renum[classes[x]].expect("類に番号がある");
+        // 前モデルの R¹₁ 後続（コピー点は除く。論文の S⁰_B）を、類ごとに 1 つ
+        let n_pre_sub = mb.n_pre;
+        let mut succ: Vec<usize> = mb.r1[0][0].iter().filter(|&y| y < n_pre_sub).map(new_of).collect();
+        succ.sort_unstable();
+        succ.dedup();
+        // 領域を消して商の点と辺を入れる
+        self.kinds.truncate(start);
+        self.closed.truncate(start);
+        self.edges.retain(|&(x, _, y)| x < start && y <= start);
+        for &x in &reps {
+            let k = match mb.kinds[x] {
+                PointKind::Copy(b) => PointKind::Copy(new_of(b)),
+                k => k,
+            };
+            self.kinds.push(k);
+            self.closed.push(true);
+        }
+        let nf = mb.n_fin as usize;
+        let add = |rows: &Vec<BitSet>, e: Edge, out: &mut Vec<(usize, Edge, usize)>| {
+            let mut seen = std::collections::HashSet::new();
+            for &x in &reps {
+                for y in rows[x].iter() {
+                    let (a, b) = (new_of(x), new_of(y));
+                    if seen.insert((a, b)) {
+                        out.push((a, e, b));
+                    }
+                }
+            }
+        };
+        let mut edges = Vec::new();
+        for s in 0..=nf {
+            let r = if s == nf { Rank::Omega } else { Rank::Fin(s as u32 + 1) };
+            add(&mb.r1[s], Edge::One(r), &mut edges);
+        }
+        for s in 0..nf - 1 {
+            add(&mb.r2[s], Edge::Two(s as u32 + 2), &mut edges);
+        }
+        add(&mb.down, Edge::Down, &mut edges);
+        add(&mb.nabla, Edge::Nabla, &mut edges);
+        self.edges.extend(edges);
+        succ
     }
 }
 
@@ -625,21 +716,50 @@ impl Model {
     ///
     /// `n_fin` は持つ有限の添字の上限（A に現れる最大の添字より小さければ引き上げる）。
     pub fn of(a: &Formula, n_fin: u32) -> Model {
+        Model::build(a, n_fin, true)
+    }
+
+    /// 論文の Def 3.9 そのままの M_A（中間点をまとめない。↓ の入れ子について点が指数的に増える）。
+    /// [`Model::of`] と双模倣になることのテストと、フレーム条件の検査に使う。
+    pub fn of_unshared(a: &Formula, n_fin: u32) -> Model {
+        Model::build(a, n_fin, false)
+    }
+
+    fn build(a: &Formula, n_fin: u32, share: bool) -> Model {
         let n_fin = n_fin.max(a.max_rank()).max(2);
-        let mut pre = Pre { kinds: vec![PointKind::Tree], edges: Vec::new(), n_fin };
+        let mut pre = Pre { kinds: vec![PointKind::Tree], edges: Vec::new(), n_fin, share, closed: vec![false] };
         pre.build(a, 0);
         Model::from_pre(pre)
     }
 
+    /// 最大の双模倣（持っているすべての関係について）の同値類。点ごとの類の番号を返す。
+    /// 変数のない式の真偽は双模倣で保たれる。分割の細分化を、類の数が増えなくなるまで繰り返す。
+    pub fn bisim_classes(&self) -> Vec<usize> {
+        bisim_partition(&[self])
+    }
+
+    /// 2 つのモデルの根（点 0）が双模倣か（同じ添字の範囲を持つときだけ意味がある）。
+    pub fn bisimilar_roots(&self, other: &Model) -> bool {
+        if self.n_fin != other.n_fin {
+            return false;
+        }
+        let classes = bisim_partition(&[self, other]);
+        classes[0] == classes[self.num_points()]
+    }
+
     /// 前モデルからコピー点を足して閉包を取る。
     fn from_pre(pre: Pre) -> Model {
-        let Pre { mut kinds, mut edges, n_fin } = pre;
+        let Pre { mut kinds, mut edges, n_fin, closed, .. } = pre;
         let n_pre = kinds.len();
 
         // rank ≥ 2 の辺（ループを除く）で入ってくる親。各点に高々 1 本（論文の (P3)）
         let mut parent2: Vec<Option<usize>> = vec![None; n_pre];
         let mut is_r2 = vec![false; n_pre];
         for &(x, e, y) in &edges {
+            // 閉包済みの領域（双模倣の商）の点は、コピー点も anchor ももう要らない
+            if closed[y] {
+                continue;
+            }
             if x != y && e.rank() >= Rank::Fin(2) {
                 debug_assert!(parent2[y].is_none(), "(P3) に反する：点 {y} に rank ≥ 2 の辺が 2 本");
                 parent2[y] = Some(x);
@@ -980,7 +1100,7 @@ impl Model {
                     for x in 0..n {
                         for y in rel(i, a)[x].iter() {
                             if !rel(j, b)[x].iter().all(|z| rel(j, b)[y].contains(z)) {
-                                v.push(format!("III.1: {x}R^{i}{a}{y}, {x}R^{j}{b}z ⇒ {y}R^{j}{b}z が破れる"));
+                                v.push(format!("III.1: {x}R^{i}{a}{y}, {x}R^{j}{b}z ⇒ {y}R^{j}{b}z {}", tr("が破れる", "fails")));
                             }
                         }
                     }
@@ -1004,19 +1124,23 @@ impl Model {
             if i == 2 {
                 for &(j, b) in &mods {
                     if !comp_in_pair(n, rel(2, a), rel(j, b), &self.down) {
-                        v.push(format!("III.2: R²{a} と R^{j}{b} から R↓ が出ない"));
+                        v.push(if crate::i18n::is_en() {
+                            format!("III.2: R²{a} and R^{j}{b} do not give R↓")
+                        } else {
+                            format!("III.2: R²{a} と R^{j}{b} から R↓ が出ない")
+                        });
                     }
                 }
             }
         }
         if !(0..n).all(|x| self.nabla[x].contains(x)) {
-            v.push("I.3: R∇ が反射的でない".to_string());
+            v.push(tr("I.3: R∇ が反射的でない", "I.3: R∇ is not reflexive").to_string());
         }
         if !subset(&self.down, &self.nabla) {
             v.push("I.5: R↓ ⊄ R∇".to_string());
         }
         if !comp_in(&self.nabla, &self.nabla, &self.nabla) {
-            v.push("II.2: R∇ が推移的でない".to_string());
+            v.push(tr("II.2: R∇ が推移的でない", "II.2: R∇ is not transitive").to_string());
         }
         if !comp_in(&self.down, &self.nabla, &self.down) {
             v.push("II.5: R↓;R∇ ⊄ R↓".to_string());
@@ -1025,7 +1149,7 @@ impl Model {
         // IV.1：R↓ の後続があれば R¹_ω の後続もある
         for (x, (d, w)) in self.down.iter().zip(r1w).enumerate() {
             if !d.is_empty() && w.is_empty() {
-                v.push(format!("IV.1: 点 {x}"));
+                v.push(format!("IV.1: {} {x}", tr("点", "point")));
             }
         }
         // IV.2：x R↓ y R¹_α z ⇒ ∃d (x R¹_ω d ∧ d R↓ z)。R¹₁ が全 R¹_α を含む
@@ -1057,6 +1181,45 @@ impl Model {
 }
 
 /// x a y かつ x b z ⇒ y c z。
+/// いくつかのモデルの非交和の上で、最大の双模倣の類を求める（点はモデルの順に通し番号）。
+fn bisim_partition(models: &[&Model]) -> Vec<usize> {
+    use std::collections::HashMap;
+    let rels: Vec<Vec<&Vec<BitSet>>> = models.iter().map(|m| m.relations().into_iter().map(|(_, r)| r).collect()).collect();
+    let mut offset = vec![0];
+    for m in models {
+        offset.push(offset.last().unwrap() + m.num_points());
+    }
+    let total = *offset.last().unwrap();
+    let mut class = vec![0usize; total];
+    let mut count = 1;
+    loop {
+        // 署名 = (今の類, 各関係で行ける類の集合)
+        let mut table: HashMap<(usize, Vec<Vec<usize>>), usize> = HashMap::new();
+        let mut next = vec![0; total];
+        for (mi, m) in models.iter().enumerate() {
+            for x in 0..m.num_points() {
+                let g = offset[mi] + x;
+                let sig: Vec<Vec<usize>> = rels[mi]
+                    .iter()
+                    .map(|rows| {
+                        let mut cs: Vec<usize> = rows[x].iter().map(|y| class[offset[mi] + y]).collect();
+                        cs.sort_unstable();
+                        cs.dedup();
+                        cs
+                    })
+                    .collect();
+                let len = table.len();
+                next[g] = *table.entry((class[g], sig)).or_insert(len);
+            }
+        }
+        class = next;
+        if table.len() == count {
+            return class;
+        }
+        count = table.len();
+    }
+}
+
 fn comp_in_pair(n: usize, a: &[BitSet], b: &[BitSet], c: &[BitSet]) -> bool {
     (0..n).all(|x| a[x].iter().all(|y| b[x].iter().all(|z| c[y].contains(z))))
 }
@@ -1110,7 +1273,7 @@ pub struct Decision {
 /// A, B が ⟨1⟩_ω を含まなければ、RC_BI での判定と同じ（Prop 2.6）。
 pub fn decide(lhs: &Formula, rhs: &Formula) -> Result<Decision, String> {
     if !lhs.is_closed() || !rhs.is_closed() {
-        return Err("判定できるのは変数を含まない式だけです（論文の Thm 3.19）".to_string());
+        return Err(tr("判定できるのは変数を含まない式だけです（論文の Thm 3.19）", "only closed formulas (without variables) can be decided (Thm 3.19 of the paper)").to_string());
     }
     let model = Model::of(lhs, lhs.max_rank().max(rhs.max_rank()));
     let holds = model.holds(0, rhs);

@@ -21,6 +21,7 @@
 //! 例：o(⊤)=0, o(0)=1, o(1)=ω, o(0 1)=ω+1, o(1 0)=ω（1 0 ≡ 1）,
 //!     o(1 0 1)=ω·2, o(1 1)=ω², o(2)=ω^ω。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::letter::Letter;
 use crate::ordinal::Ordinal;
@@ -270,11 +271,18 @@ impl Worm<u32> {
     /// 先頭の 0 を外すのは pop、展開は先頭の V の部分だけを書き換えるので、1 ステップの
     /// 手間は「変わった文字の数」で済む（battle_step は毎回 worm 全体をコピーする）。
     pub fn battle_length(&self, max_steps: u64) -> Option<u64> {
+        self.battle_length_capped(max_steps, usize::MAX).ok()
+    }
+
+    /// [`Worm::battle_length`] に、worm の長さ（文字の数）の上限 `max_len` を付けたもの。
+    /// ⊤ に着いたら `Ok(ステップ数)`、回数か長さの上限で止めたら `Err(そこまでのステップ数)`
+    /// （1 ステップの手間が小さいので、回数より先にメモリが尽きないように）。
+    pub fn battle_length_capped(&self, max_steps: u64, max_len: usize) -> Result<u64, u64> {
         let mut v: Vec<u32> = self.0.iter().rev().copied().collect();
         let mut steps = 0u64;
         while let Some(&h) = v.last() {
-            if steps == max_steps {
-                return None;
+            if steps == max_steps || v.len() > max_len {
+                return Err(steps);
             }
             steps += 1;
             if h == 0 {
@@ -285,13 +293,14 @@ impl Worm<u32> {
             let cut = v.iter().rposition(|&x| x < h).map_or(0, |p| p + 1);
             let mut v_dec = v.split_off(cut);
             *v_dec.last_mut().expect("V は空でない") = h - 1;
-            let m = usize::try_from(steps).ok()?;
-            v.reserve(v_dec.len().checked_mul(m + 1)?);
+            let m = usize::try_from(steps).map_err(|_| steps)?;
+            let grow = v_dec.len().checked_mul(m + 1).filter(|g| v.len() + g <= max_len).ok_or(steps)?;
+            v.reserve(grow);
             for _ in 0..=m {
                 v.extend_from_slice(&v_dec);
             }
         }
-        Some(steps)
+        Ok(steps)
     }
 }
 
@@ -356,7 +365,7 @@ pub struct ParseWormError(pub String);
 
 impl fmt::Display for ParseWormError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "worm として読めません: {}", self.0)
+        write!(f, "{}: {}", tr("worm として読めません", "cannot read as a worm"), self.0)
     }
 }
 

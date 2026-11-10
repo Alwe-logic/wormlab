@@ -13,6 +13,7 @@
 //! フェース）。`type Judgment;` のような「関連型」を持たせると、体系ごとに
 //! 判断（シーケントなど）の型を自由に選べる。
 
+use crate::i18n::tr;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt;
@@ -226,18 +227,22 @@ impl<J, R> Proof<J, R> {
 /// 証明を検査し、正しければ最終的な結論を返す。
 pub fn check<C: Calculus>(proof: &Proof<C::Judgment, C::Rule>) -> Result<&C::Judgment, String> {
     if proof.root >= proof.nodes.len() {
-        return Err("root が範囲外".to_string());
+        return Err(tr("root が範囲外", "root out of range").to_string());
     }
     for (i, node) in proof.nodes.iter().enumerate() {
         let mut prem = Vec::with_capacity(node.premises.len());
         for &p in &node.premises {
             if p >= i {
-                return Err(format!("ノード {i}: 前提 {p} が自分より後ろにある"));
+                return Err(if crate::i18n::is_en() {
+                    format!("node {i}: premise {p} comes after it")
+                } else {
+                    format!("ノード {i}: 前提 {p} が自分より後ろにある")
+                });
             }
             prem.push(&proof.nodes[p].conclusion);
         }
         C::check_step(&node.rule, &prem, &node.conclusion)
-            .map_err(|e| format!("ノード {i} ({} : {}): {e}", node.rule, node.conclusion))?;
+            .map_err(|e| format!("{} {i} ({} : {}): {e}", tr("ノード", "node"), node.rule, node.conclusion))?;
     }
     Ok(&proof.nodes[proof.root].conclusion)
 }

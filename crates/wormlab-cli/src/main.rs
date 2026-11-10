@@ -16,6 +16,8 @@
 //!   wormlab bcmp "((()))" "(()())"   括弧語を順序数を使わずに比較（Veblen 経由の比較と照合）
 //!   wormlab bc "((()))p |- ()(())p"  Bracket Calculus で判定。真なら BC の導出を作って検査
 //!                                    （--proof で導出の全行、--json で JSON）
+//!   wormlab bwc "((())) |- ()(())"   括弧語だけの体系 BWC（WC の BC 版）で判定・導出・検査
+//!                                    （--proof で導出の全行、--json で JSON、--latex で LaTeX）
 //!   wormlab bbattle "(())()" [上限]  括弧語の battle（基本列を繰り返す）
 //!   wormlab thm52 3                  Thm 52（ATR₀ から独立）の出発点 a'_m
 //!   wormlab bi "<2>_2 T |- <1> D T"  RC_BI（Pakhomov–Lazar）で判定（変数なしの式。--model で M_A を表示）
@@ -26,6 +28,10 @@
 //!   wormlab fs "ε_0" [k]             標準の基本列 α[0..k] と、worm が作る列の比較
 //!   wormlab hardy "ω^2" 10           Hardy 関数 H_α(n) と急増加関数 f_α(n)
 //!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
+//!   wormlab rules [体系]             各体系（rc・wc・bc・bwc・rcbi）の公理と規則の一覧（--json 可）
+//!   wormlab expr "e^ω(1) + ψ(0)"     順序数の式（+・·・^・φ・ε・e^α・ψ）を使った定義つきで標準形に（--latex 可）
+//!   wormlab defs                     式の計算で使う定義の一覧（出典つき）
+//!   wormlab forms "ε_0 + 1"          同じ順序数をいろいろな標準形で（Veblen・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 //!
 //! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
 //!
@@ -38,9 +44,17 @@ use serde_json::json;
 use std::cmp::Ordering;
 use std::io::BufRead;
 use std::process::ExitCode;
+use wormlab_core::arith;
+use wormlab_core::expr;
+use wormlab_core::notation;
+use wormlab_core::repeats;
 use wormlab_core::wc::{self, WcProof};
-use wormlab_core::hierarchy::{self, Budget};
+use wormlab_core::bignum::BigNat;
+use wormlab_core::hierarchy::{self, BigBudget, BigValue, Budget};
 use wormlab_core::bc::{self, BSeq};
+use wormlab_core::bwc::{self, BwSeq};
+use wormlab_core::cworm::{self, CWorm};
+use wormlab_core::iworm::{self, IWorm};
 use wormlab_core::latex::{self, BattleRow, ToLatex};
 use wormlab_core::modelview::ModelView;
 use wormlab_core::proof::Proof;
@@ -123,6 +137,23 @@ fn parse_ordinal(s: &str) -> Result<Veblen, String> {
 
 fn parse_bracket(s: &str) -> Result<Bracket, String> {
     s.parse::<Bracket>().map_err(|e| e.to_string())
+}
+
+/// これ以上長い worm（文字の数）・括弧語（記号の数）の battle は、繰り返しでまとめて表示する。
+const COMPACT_MIN_LETTERS: usize = 16;
+const COMPACT_MIN_CHARS: usize = 40;
+
+/// battle の 1 ステップの表示：長ければ繰り返しでまとめた形（まとめても長ければ先頭だけ）。
+fn battle_line(raw: String, long: bool, compact: impl FnOnce() -> repeats::Compact, size: usize) -> String {
+    if !long {
+        return raw;
+    }
+    let c = compact();
+    if c.text.chars().count() < raw.chars().count() {
+        format!("{}    （長さ {size}）", shorten(c.text, 240))
+    } else {
+        shorten(raw, 100)
+    }
 }
 
 /// 長い語は先頭だけ表示する。
@@ -297,6 +328,47 @@ fn worm_cmp_tex(a: &str, o: Ordering, b: &str, oa: &str, ob: &str) -> String {
     ])
 }
 
+/// 括弧語だけの体系 BWC（WC の BC 版）の判定と導出。順序数も RC も使わない。
+/// 最後に BC（RC 経由）の判定とも照らし合わせる。
+fn bwc_cmd(goal: &BwSeq, show_proof: bool, json: bool, tex: Option<&Tex>) -> Result<(), String> {
+    let holds = bwc::decide(&goal.lhs, &goal.rhs);
+    if holds != bc::decide(&bc::Formula::worm(&goal.lhs), &bc::Formula::worm(&goal.rhs)) {
+        return Err(format!("BWC と BC の判定が食い違いました（バグです）: {goal}"));
+    }
+    if !holds {
+        if let Some(t) = tex {
+            t.emit(vec![latex::display(&latex::verdict(&goal.lhs.to_latex(), &goal.rhs.to_latex(), false))]);
+            return Ok(());
+        }
+        println!("BWC ⊬ {goal}");
+        println!("  （BC・RC_Γ0 でも成り立たない）");
+        return Ok(());
+    }
+    let (p, st) = bwc::prove(&goal.lhs, &goal.rhs)?;
+    bwc::check(&p).map_err(|e| format!("検査に失敗（バグです）: {e}"))?;
+    if let Some(t) = tex {
+        t.emit(proof_tex("BWC", &goal.to_latex(), &p));
+        return Ok(());
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    if show_proof {
+        print!("{p}");
+    }
+    println!("BWC で証明: {goal}");
+    println!(
+        "  導出：検査済み（判定・導出・検査に順序数も RC も不使用）、DAG {} ノード / 木に展開すると {} ノード / 高さ {}",
+        p.dag_size(), p.tree_size(), p.height()
+    );
+    println!("  副条件（文字どうしの比較）の導出 {} 個、入れ子は最大 {} 段", st.side_conditions, st.max_side_depth);
+    if !show_proof {
+        println!("  （--proof で導出の全行を表示）");
+    }
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let json = args.iter().any(|a| a == "--json");
     let full_proof = args.iter().any(|a| a == "--proof");
@@ -305,12 +377,21 @@ fn run(args: &[String]) -> Result<(), String> {
     let rel = args.iter().find_map(|a| a.strip_prefix("--rel=").map(|s| s.to_string()));
     let tex = (args.iter().any(|a| a == "--latex") || standalone).then_some(Tex { standalone, rel });
     let tex = tex.as_ref();
-    let flags = ["--json", "--proof", "--model", "--latex", "--standalone"];
-    let args: Vec<String> =
-        args.iter().filter(|a| !flags.contains(&a.as_str()) && !a.starts_with("--rel=")).cloned().collect();
+    // 多倍長の値：--full で全桁、--bits=N で途中の値の大きさの上限（2 進の桁数）
+    let full = args.iter().any(|a| a == "--full");
+    let mut big_budget = BigBudget::default();
+    if let Some(b) = args.iter().find_map(|a| a.strip_prefix("--bits=")) {
+        big_budget.max_bits = b.parse().map_err(|_| format!("--bits= の値が数値ではありません: {b}"))?;
+    }
+    let flags = ["--json", "--proof", "--model", "--latex", "--standalone", "--full"];
+    let args: Vec<String> = args
+        .iter()
+        .filter(|a| !flags.contains(&a.as_str()) && !a.starts_with("--rel=") && !a.starts_with("--bits="))
+        .cloned()
+        .collect();
     let args = args.as_slice();
     // --latex に対応していない命令
-    let no_latex = ["table", "lt", "thm52", "hardy", "blen"];
+    let no_latex = ["table", "lt", "thm52", "hardy", "blen", "rules", "defs", "forms"];
     if let Some(cmd) = args.first().filter(|c| tex.is_some() && no_latex.contains(&c.as_str())) {
         return Err(format!("{cmd} は --latex に対応していません"));
     }
@@ -468,28 +549,58 @@ fn run(args: &[String]) -> Result<(), String> {
                 None => 30,
             };
             let w = parse(a)?;
+            // 繰り返しでまとめたまま進める（長い worm でも速い。長さは多倍長）
+            let mut c = CWorm::new(&w).ok_or_else(|| format!("文字は {} 以下にしてください", cworm::MAX_LETTER))?;
+            let show = |c: &CWorm| -> String {
+                if c.is_top() {
+                    return "⊤".to_string();
+                }
+                match c.to_worm(COMPACT_MIN_LETTERS as u64 - 1) {
+                    Some(plain) => plain.to_string(),
+                    None => {
+                        let v = c.view(200);
+                        format!("{}{}", cworm::text(&v.shapes), if v.truncated { " …" } else { "" })
+                    }
+                }
+            };
             if let Some(t) = tex {
-                let all: Vec<Worm> = w.battle().take(limit + 2).collect();
-                let more = all.len() > limit + 1;
-                let rows: Vec<BattleRow> = all
-                    .iter()
-                    .take(limit + 1)
-                    .map(|c| BattleRow { formula: c.to_latex(), ordinal: Some(c.ordinal().to_latex()) })
-                    .collect();
+                let mut rows = Vec::new();
+                for m in 0..=limit as u64 {
+                    let formula = if c.is_top() {
+                        "\\top".to_string()
+                    } else {
+                        match c.to_worm(COMPACT_MIN_LETTERS as u64 - 1) {
+                            Some(plain) => plain.to_latex(),
+                            None => {
+                                let v = c.view(200);
+                                format!("{}{}", cworm::latex(&v.shapes), if v.truncated { "\\cdots" } else { "\\top" })
+                            }
+                        }
+                    };
+                    rows.push(BattleRow { formula, ordinal: Some(c.ordinal().to_latex()) });
+                    if c.is_top() {
+                        break;
+                    }
+                    if m < limit as u64 {
+                        c.step(m + 1);
+                    }
+                }
+                let more = !c.is_top();
                 t.emit(vec![latex::battle_table(&rows, "A", Some("o(A_{k})"), more)]);
                 return Ok(());
             }
             let mut steps = 0;
-            for (i, cur) in w.battle().take(limit + 1).enumerate() {
-                let shown = if cur.len() > 60 {
-                    format!("{} … (長さ {})", Worm::new(cur.letters()[..60].to_vec()), cur.len())
-                } else {
-                    cur.to_string()
-                };
-                println!("{i:>4}: {shown}    o = {}", cur.ordinal());
-                steps = i;
+            for m in 0..=limit as u64 {
+                let len = c.len();
+                let len = if len.decimal_digits() <= 12 { len.to_decimal() } else { len.summary() };
+                println!("{m:>4}: {}    （長さ {len}）    o = {}", show(&c), shorten(c.ordinal().to_string(), 200));
+                steps = m;
+                if c.is_top() || m == limit as u64 {
+                    break;
+                }
+                c.step(m + 1);
             }
-            if steps == limit {
+            if steps == limit as u64 && !c.is_top() {
                 println!("（{limit} ステップで打ち切り）");
             }
             Ok(())
@@ -758,18 +869,129 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        [cmd, s] if cmd == "bwc" => {
+            let goal: BwSeq = s.parse()?;
+            bwc_cmd(&goal, full_proof, json, tex)
+        }
         [cmd, s] if cmd == "bc" => {
             let goal: BSeq = s.parse().map_err(|e: bc::ParseError| e.to_string())?;
             bc_cmd(&goal, full_proof, json, tex)
         }
         [cmd, a] if cmd == "bracketof" => {
             let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+            if !x.is_predicative() {
+                return Err(format!("{x} は Γ0 以上（Ω・ψ を含む）なので括弧語で表せません"));
+            }
             let w = Bracket::from_ordinal(&x);
             if let Some(t) = tex {
                 t.emit(vec![latex::display(&format!("{} = o^{{*}}({})", x.to_latex(), w.to_latex()))]);
                 return Ok(());
             }
             println!("{x}  =  {w}");
+            Ok(())
+        }
+        [cmd, a] if cmd == "psi" => psi_cmd(&parse_ordinal(a)?, json, tex),
+        [cmd, a] if cmd == "iworm" => iworm_cmd(&a.parse::<IWorm>()?, json, tex),
+        [cmd, a] if cmd == "iwormof" => {
+            let x = parse_ordinal(a)?;
+            let w = IWorm::from_value(&x).ok_or_else(|| {
+                format!("{x} は可算で ψ(e_{{Ω+1}}1) = {} 未満の数でないので、impredicative worm で表せません", Veblen::psi(iworm::top()))
+            })?;
+            if let Some(t) = tex {
+                t.emit(vec![latex::display(&format!("{} = p({})", x.to_latex(), w.to_latex()))]);
+                return Ok(());
+            }
+            println!("{x}  =  p({w})");
+            println!("  （w^π = {}、o(w^π) = {}）", w.to_worm(), w.ordinal());
+            Ok(())
+        }
+        [cmd, e] if cmd == "expr" => {
+            let r = expr::eval_str(e)?;
+            if let Some(t) = tex {
+                t.emit(vec![r.latex()]);
+                return Ok(());
+            }
+            println!("{}", r.input);
+            for st in &r.steps {
+                println!("  {} = {}", st.node, st.value);
+                println!("      （{}）", st.rule);
+                for d in &st.details {
+                    println!("        {d}");
+                }
+            }
+            println!("= {}", r.value);
+            Ok(())
+        }
+        [cmd, x] if cmd == "forms" => {
+            let v = parse_ordinal(x)?;
+            for info in notation::notations() {
+                let n = notation::Notation::parse(info.key).expect("一覧の書き方");
+                let r = notation::render(&v, n);
+                match r.note {
+                    Some(why) => println!("{:<26} （{why}）", info.name),
+                    None => println!("{:<26} {}", info.name, r.text),
+                }
+            }
+            Ok(())
+        }
+        [cmd] if cmd == "defs" => {
+            for d in expr::definitions() {
+                println!("{}  {}", d.symbol, d.name);
+                for l in &d.lines {
+                    println!("  ・{l}");
+                }
+                println!("  出典: {}\n", d.source);
+            }
+            Ok(())
+        }
+        [cmd, rest @ ..] if cmd == "rules" && rest.len() <= 1 => {
+            // 【Rust メモ】`rest @ ..` は「残りの引数をまとめて rest という名前で受ける」パターン
+            let systems = match rest.first() {
+                Some(id) => vec![wormlab_core::rules::get(id).ok_or_else(|| format!("体系は rc・wc・bc・bwc・rcbi のどれかです: {id}"))?],
+                None => wormlab_core::rules::all(),
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&systems).map_err(|e| e.to_string())?);
+            } else {
+                let texts: Vec<String> = systems.iter().map(|s| s.text()).collect();
+                print!("{}", texts.join("\n"));
+            }
+            Ok(())
+        }
+        [cmd, a, o, b] if cmd == "calc" => {
+            // 【Rust メモ】`ok_or_else` は `None` を `Err(…)` に変える（`?` でそのまま返せる）
+            let op = arith::Op::parse(o).ok_or_else(|| format!("演算は + か * か ^ です（x・** も可）: {o}"))?;
+            let c = arith::calc(op, &parse_ordinal(a)?, &parse_ordinal(b)?).map_err(|e| e.to_string())?;
+            if let Some(t) = tex {
+                t.emit(vec![c.latex()]);
+                return Ok(());
+            }
+            println!("{}", c.lhs);
+            for st in &c.steps {
+                println!("  = {}", st.plain);
+                println!("      （{}）", st.note);
+            }
+            Ok(())
+        }
+        [cmd, a, b] if cmd == "icmp" => {
+            let (x, y) = (a.parse::<IWorm>()?, b.parse::<IWorm>()?);
+            let (px, py) = (x.value(), y.value());
+            let rel = match px.cmp(&py) {
+                Ordering::Less => "<",
+                Ordering::Equal => "=",
+                Ordering::Greater => ">",
+            };
+            if let Some(t) = tex {
+                t.emit(vec![latex::display(&format!(
+                    "p({}) = {} {rel} {} = p({})",
+                    x.to_latex(),
+                    px.to_latex(),
+                    py.to_latex(),
+                    y.to_latex()
+                ))]);
+                return Ok(());
+            }
+            println!("p({x}) = {px}  {rel}  {py} = p({y})");
             Ok(())
         }
         [cmd, a, rest @ ..] if cmd == "bbattle" && rest.len() <= 1 => {
@@ -784,14 +1006,20 @@ fn run(args: &[String]) -> Result<(), String> {
                 let rows: Vec<BattleRow> = all
                     .iter()
                     .take(limit + 1)
-                    .map(|c| BattleRow { formula: c.to_latex(), ordinal: Some(c.ordinal().to_latex()) })
+                    .map(|c| BattleRow {
+                        formula: if c.to_string().len() >= COMPACT_MIN_CHARS { repeats::bracket(c).latex } else { c.to_latex() },
+                        ordinal: Some(c.ordinal().to_latex()),
+                    })
                     .collect();
                 t.emit(vec![latex::battle_table(&rows, "a", Some("o^{*}(a_{k})"), more)]);
                 return Ok(());
             }
             let mut steps = 0;
             for (i, cur) in x.battle().take(limit + 1).enumerate() {
-                println!("{i:>4}: {}    o* = {}", shorten(cur.to_string(), 60), cur.ordinal());
+                let raw = cur.to_string();
+                let size = raw.len();
+                let shown = battle_line(raw, size >= COMPACT_MIN_CHARS, || repeats::bracket(&cur), size);
+                println!("{i:>4}: {shown}    o* = {}", cur.ordinal());
                 steps = i;
             }
             if steps == limit {
@@ -804,6 +1032,14 @@ fn run(args: &[String]) -> Result<(), String> {
             let a = Bracket::thm52(m);
             println!("a'_{m} = {a}");
             println!("o*    = {}", a.ordinal());
+            // 長さ G(m)：括弧語の battle を o* が ε₀ 未満に落ちるまで動かし、そこから閉じた形
+            // α{m} = D(α, m+1) を多倍長で（bc.md §3）。a'_2 は 2 ステップで worm 3 3 3 = ω^ω^ω^3 になる
+            println!("G({m}) {}", big_line(hierarchy::worm_battle_length_any(&a.ordinal(), big_budget), full));
+            match m {
+                0 | 1 => {}
+                2 => println!("  （2 ステップ後に worm 3 3 3 = ω^ω^ω^3 になり、そこから閉じた形で数えた下界）"),
+                _ => println!("  （2 ステップ後の括弧語の o* は Veblen 関数の入れ子で、ε₀ 未満に落ちるまで動かしきれない）"),
+            }
             println!("（ここから始めた battle が ⊤ に着くまでの長さ G(m) は、ATR₀ が全域性を");
             println!("  証明できるどんな関数よりも速く増える：arXiv:2008.13445, Thm 52）");
             Ok(())
@@ -824,7 +1060,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             println!("{:>3}  {:<40} worm の基本列（正規形の worm から 1 ステップ）", "n", format!("{x}[n]（標準）"));
             for n in 0..=k {
-                let std = x.fundamental(n).expect("極限").to_string();
+                let std = x.fundamental(n).map_or("-（Ω・ψ を含む数は未対応）".to_string(), |y| y.to_string());
                 let worm = hierarchy::worm_fundamental(&x, n as usize).map_or("-".to_string(), |y| y.to_string());
                 println!("{n:>3}  {:<40} {}", shorten(std, 40), shorten(worm, 60));
             }
@@ -832,18 +1068,27 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         [cmd, a, n] if cmd == "hardy" => {
             let x = parse_ordinal(a)?;
+            if !x.is_predicative() {
+                return Err(format!("{x} は Ω・ψ を含むので未対応です（基本列をまだ定義していない）"));
+            }
             let n: u128 = n.parse().map_err(|_| format!("n が数値ではありません: {n}"))?;
-            let show = |v: Option<u128>| v.map_or("大きすぎて打ち切り（u128 を超えるか、計算が長すぎる）".to_string(), |v| v.to_string());
-            println!("H_{x}({n}) = {}", show(hierarchy::hardy(&x, n, Budget::default())));
-            println!("f_{x}({n}) = {}", show(hierarchy::fast_growing(&x, n, Budget::default())));
+            let n = BigNat::from(n);
+            println!("H_{x}({n}) {}", big_line(hierarchy::hardy_big(&x, &n, big_budget), full));
+            println!("f_{x}({n}) {}", big_line(hierarchy::fast_growing_big(&x, &n, big_budget), full));
             Ok(())
         }
         [cmd, a] if cmd == "blen" => {
             let x = parse_ordinal(a)?;
+            if !x.is_predicative() {
+                return Err(format!("{x} は Ω・ψ を含むので未対応です（基本列をまだ定義していない）"));
+            }
             let budget = Budget { max_steps: 10_000_000 };
             let show = |v: Option<u64>| v.map_or("1000 万ステップで打ち切り".to_string(), |v| v.to_string());
             println!("α = {x}");
-            println!("  worm battle（正規形の worm から）: {}", show(hierarchy::worm_battle_length_of(&x, budget)));
+            // ε₀ 未満は閉じた形 α{m} = D(α, m+1) を多倍長で（G_α の合成、worm を作らないので速い）。
+            // ε₀ 以上は括弧語の battle を実際に動かす
+            let worm = big_line(hierarchy::worm_battle_length_any(&x, big_budget), full).trim_start_matches("= ").to_string();
+            println!("  worm battle（正規形の worm から）: {worm}");
             println!("  標準 battle（α ← α[k], k = 1, 2, …）: {}", show(hierarchy::ordinal_battle_length(&x, 1, budget)));
             Ok(())
         }
@@ -863,8 +1108,14 @@ const USAGE: &str = "使い方:
   wormlab ordinal <順序数> [<順序数>]  Γ0 未満の順序数の正規形（2 つなら比較）
   wormlab bracket <括弧語>         括弧語の順序数・翻訳・正規形（--json 可）
   wormlab bracketof <順序数>       順序数を正規形の括弧語にする
+  wormlab psi    <順序数>          ψ(ξ)（Worms and spiders Def 6.19）：C(ξ) の判定と崩し（--json 可）
+  wormlab iworm  <W_Ω の worm>     impredicative worm の翻訳 w^π・o(w^π)・値 p(w)（--json 可）
+  wormlab iwormof <順序数>         p(w) = ξ となる impredicative worm（ξ < ψ(e_{Ω+1}1)）
+  wormlab icmp   <worm> <worm>     impredicative worm の値 p の比較
+  wormlab calc   <順序数> <+|*|^> <順序数>  順序数の足し算・掛け算・べき乗と計算の過程（* と ^ は '' でくくる）
   wormlab bcmp   <括弧語> <括弧語> 順序数を使わない比較（Veblen 経由と照合）
   wormlab bc     \"φ |- ψ\"          Bracket Calculus で判定。真なら BC の導出（--proof で全行）
+  wormlab bwc    \"a |- b\"          括弧語だけの体系 BWC（WC の BC 版）で判定・導出（--proof で全行）
   wormlab bi     \"A |- B\"          RC_BI（Pakhomov–Lazar）で判定（変数なし。--model で M_A を表示）
   wormlab bimodel <式>             RC_BI の有限モデル M_A とフレーム条件の検査
   wormlab bicmp  <式> <式>         RC_BI の順序 <¹₁・≡¹₁ で比較
@@ -873,11 +1124,17 @@ const USAGE: &str = "使い方:
   wormlab bbattle <括弧語> [上限]  括弧語の battle
   wormlab thm52  <m>               ATR₀ から独立な命題（Thm 52）の出発点 a'_m
   wormlab fs     <順序数> [k]      標準の基本列 α[0..k] と worm が作る列
-  wormlab hardy  <順序数> <n>      Hardy 関数 H_α(n) と急増加関数 f_α(n)
-  wormlab blen   <順序数>          worm battle と標準 battle の長さ
+  wormlab hardy  <順序数> <n>      Hardy 関数 H_α(n) と急増加関数 f_α(n)（多倍長。--full・--bits=N）
+  wormlab blen   <順序数>          worm battle と標準 battle の長さ（多倍長。--full で全桁、--bits=N で上限）
+  wormlab rules  [体系]            公理と規則の一覧（体系は rc・wc・bc・bwc・rcbi、省略なら全部。--json 可）
+  wormlab expr   <式>              順序数の式（+・·・^・φ(α,β)・ε_α・e^α(β)・ψ(α)）を、使った定義つきで 1 段ずつ標準形に
+  wormlab defs                     expr で使う定義の一覧（φ・超指数関数・ψ など、出典つき）
+  wormlab forms  <順序数>          同じ順序数をいろいろな標準形で（Veblen・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
   文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（ord・cmp・lt・wc・wclt で使える）
 順序数の書き方: \"ω^(ω + 1)·2 + 3\", \"ε_0\", \"φ(2, 0)\"（ω は w、ε は e、φ は phi でも可）
+  Γ0 以上: \"Ω\"（O でも可）、\"ψ(ε_(Ω + 1))\"（ψ は psi でも可）。ψ(0) = Γ0
+impredicative worm: 括弧語に文字 Ω を加えたもの。例 \"Ω\" = Γ0、\"((()))Ω\" = ψ(ε_(Ω+1))
 括弧語の書き方: \"()\" = 1, \"(())\" = ω, \"((()))\" = ε_0（⊤ は省略）
 BC の式: \"(a)φ\"（a は括弧語）。例 \"((()))p\" = ⟨ω⟩p、\"(())(p & ()q)\"。括弧語はそのまま式として読む
 RC_BI の式: <1>_2 = ⟨1⟩₂、<2>_3 = ⟨2⟩₃、<1>_w = ⟨1⟩_ω、D = ↓、N = ∇、T = ⊤（<1>, <2> だけなら ⟨1⟩₁, ⟨2⟩₂）
@@ -885,6 +1142,92 @@ LaTeX: --latex で LaTeX の断片、--standalone でプリアンブルつきの
   証明は bussproofs の証明木（木で 120 ノードまで）と行番号つきの一覧、モデルは TikZ
   --rel=all で閉包後の辺も描く。--rel=1,down のように関係を選べる（R¹₁ → 11、R↓ → down、RC の R_1 → 1）
   table・lt・thm52・hardy・blen は対象外";
+
+/// 多倍長の値の 1 行表示：「= 123…」「> 2^(…)」など。`full` ならちょうどの値は全桁。
+fn big_line(v: Option<BigValue>, full: bool) -> String {
+    match v {
+        None => "は計算できません（基本列が未定義）".to_string(),
+        Some(BigValue::Exact(n)) if full => format!("= {}", n.to_decimal()),
+        Some(BigValue::Exact(n)) => {
+            let s = n.summary();
+            if n.bits() > 199 { format!("= {s}（全桁は --full）") } else { format!("= {s}") }
+        }
+        Some(BigValue::Above2Pow(k)) => {
+            let k = k.summary();
+            let k = if k.chars().all(|c| c.is_ascii_digit()) { k } else { format!("({k})") };
+            format!("> 2^{k}（途中の値が上限を超えたので下界。上限は --bits=N で変えられる）")
+        }
+        Some(BigValue::AtLeast(n)) => format!("≥ {}（計算の回数か語の長さの上限で打ち切り）", n.summary()),
+    }
+}
+
+/// ψ(ξ) の計算の中身：K(ξ)、ξ ∈ C(ξ) か、崩した先 z0、impredicative worm での表し方。
+fn psi_cmd(x: &Veblen, json: bool, tex: Option<&Tex>) -> Result<(), String> {
+    let p = Veblen::psi(x.clone());
+    let z0 = p.as_psi().expect("ψ の値").clone();
+    let normal = x.in_c(x);
+    let iw = IWorm::from_value(&p);
+    if let Some(t) = tex {
+        let mut s = format!("\\psi({}) = {}", x.to_latex(), p.to_latex());
+        if let Some(w) = &iw {
+            s.push_str(&format!(" = p({})", w.to_latex()));
+        }
+        t.emit(vec![latex::display(&s)]);
+        return Ok(());
+    }
+    if json {
+        let v = json!({
+            "xi": x, "psi": p, "in_c": normal, "max_k": x.max_k(), "z0": z0,
+            "iworm": iw.as_ref().map(|w| w.to_string()),
+        });
+        println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    println!("ξ       = {x}");
+    match x.max_k() {
+        None => println!("K(ξ)    = ∅（ψ を含まない）"),
+        Some(k) => println!("max K(ξ) = {k}"),
+    }
+    if normal {
+        println!("ξ ∈ C(ξ)：はい（正規形）");
+    } else {
+        println!("ξ ∈ C(ξ)：いいえ → ξ 以上で z ∈ C(z) となる最小の z = {z0} に崩す");
+    }
+    println!("ψ(ξ)    = {p}");
+    match &iw {
+        Some(w) => println!("impredicative worm：p({w}) = ψ(ξ)（{} 記号）", w.size()),
+        None => println!("（ψ(e_{{Ω+1}}1) 以上なので impredicative worm では表せない）"),
+    }
+    Ok(())
+}
+
+fn iworm_cmd(w: &IWorm, json: bool, tex: Option<&Tex>) -> Result<(), String> {
+    let (u, o, p) = (w.to_worm(), w.ordinal(), w.value());
+    let nf = w.normal_form();
+    if let Some(t) = tex {
+        t.emit(vec![latex::align(&[
+            ("p(".to_string() + &w.to_latex() + ")", format!("= \\pi({})", u.to_latex())),
+            (String::new(), format!("= {}", p.to_latex())),
+        ])]);
+        return Ok(());
+    }
+    if json {
+        let v = json!({
+            "iworm": w, "translation": u.to_string(), "ordinal": o, "value": p,
+            "normal_form": nf, "depth": w.depth(), "size": w.size(),
+        });
+        println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    println!("w        = {w}（入れ子 {}、{} 記号）", w.depth(), w.size());
+    println!("w^π      = {u}");
+    println!("o(w^π)   = {o}{}", if o.is_countable() { "（可算なので π = o）" } else { "（Ω 以上なので π = ψ(−Ω + o)）" });
+    println!("p(w)     = {p}");
+    if nf != *w {
+        println!("標準形   = {nf}");
+    }
+    Ok(())
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

@@ -96,7 +96,7 @@ impl ModelView {
                 } else {
                     format!("\\{{{}\\}}", vars.iter().map(|v| latex::var(v)).collect::<Vec<_>>().join(", "))
                 };
-                PointView { id: x, label, kind: "点".to_string(), tag: "point".to_string(), latex: tex, anchor: None }
+                PointView { id: x, label, kind: crate::i18n::tr("点", "point").to_string(), tag: "point".to_string(), latex: tex, anchor: None }
             })
             .collect();
         let relations = m
@@ -119,10 +119,14 @@ impl ModelView {
         let points = (0..n)
             .map(|x| {
                 let (kind, tag, tex) = match m.kind(x) {
-                    rcbi::PointKind::Tree => ("構文木".to_string(), "tree", String::new()),
-                    rcbi::PointKind::Zero => ("零点".to_string(), "zero", "\\mathrm{zero}".to_string()),
-                    rcbi::PointKind::Intermediate => ("中間点".to_string(), "int", "\\mathrm{int}".to_string()),
-                    rcbi::PointKind::Copy(b) => (format!("{b} のコピー点"), "copy", format!("{b}{{\\downarrow}}")),
+                    rcbi::PointKind::Tree => (crate::i18n::tr("構文木", "tree").to_string(), "tree", String::new()),
+                    rcbi::PointKind::Zero => (crate::i18n::tr("零点", "zero point").to_string(), "zero", "\\mathrm{zero}".to_string()),
+                    rcbi::PointKind::Intermediate => (crate::i18n::tr("中間点", "intermediate").to_string(), "int", "\\mathrm{int}".to_string()),
+                    rcbi::PointKind::Copy(b) => (
+                        if crate::i18n::is_en() { format!("copy of {b}") } else { format!("{b} のコピー点") },
+                        "copy",
+                        format!("{b}{{\\downarrow}}"),
+                    ),
                 };
                 PointView { id: x, label: String::new(), kind, tag: tag.to_string(), latex: tex, anchor: m.anchor(x) }
             })

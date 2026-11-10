@@ -103,7 +103,7 @@ proptest! {
     #[test]
     fn last_exponent(x in veblen()) {
         if let Some((a, b, _)) = x.terms().last() {
-            prop_assert_eq!(Veblen::phi(a.clone(), b.clone()), Veblen::omega_pow(x.last_exponent()));
+            prop_assert_eq!(Veblen::phi(a, b), Veblen::omega_pow(x.last_exponent()));
         }
     }
 

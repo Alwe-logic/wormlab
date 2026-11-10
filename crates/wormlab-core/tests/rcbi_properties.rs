@@ -7,6 +7,8 @@
 //! - ⟨1⟩ だけの式では、既存の RC の判定（添字を 1 ずらす）と一致する
 //! - 持つ添字の範囲（N）を広げても答えは変わらない
 //! - Lemma 3.16：⟨2⟩_α A ⊢ ⟨2⟩_α(A ∧ ⟨1⟩_ω A)
+//! - 中間点をまとめた M_A（[`Model::of`]）は、論文どおりの M_A（[`Model::of_unshared`]）と
+//!   根が双模倣で、どの式の真偽も同じ（algorithms.md §6.3 の改良）
 
 use proptest::prelude::*;
 use wormlab_core::rc;
@@ -23,6 +25,21 @@ fn formula() -> impl Strategy<Value = Formula> {
             1 => inner.clone().prop_map(Formula::one_omega),
             2 => (2u32..4, inner.clone()).prop_map(|(k, a)| Formula::two(k, a)),
             2 => inner.clone().prop_map(Formula::down),
+            1 => inner.prop_map(Formula::nabla),
+        ]
+    })
+}
+
+/// ↓ の入れ子が深くなりやすい式（中間点が多い）
+fn deep() -> impl Strategy<Value = Formula> {
+    let leaf = Just(Formula::Top);
+    leaf.prop_recursive(6, 14, 2, |inner| {
+        prop_oneof![
+            2 => (inner.clone(), inner.clone()).prop_map(|(a, b)| Formula::and(a, b)),
+            2 => (1u32..3, inner.clone()).prop_map(|(k, a)| Formula::one(k, a)),
+            1 => inner.clone().prop_map(Formula::one_omega),
+            1 => (2u32..4, inner.clone()).prop_map(|(k, a)| Formula::two(k, a)),
+            4 => inner.clone().prop_map(Formula::down),
             1 => inner.prop_map(Formula::nabla),
         ]
     })
@@ -79,6 +96,19 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
     /// Prop 3.15・3.10：M_A は RC_BIω モデルで、根で A が真
+    #[test]
+    fn shared_model_is_bisimilar(a in deep(), b in formula()) {
+        let shared = Model::of(&a, 3);
+        let full = Model::of_unshared(&a, 3);
+        prop_assert!(shared.num_points() <= full.num_points());
+        prop_assert!(shared.bisimilar_roots(&full), "{}：根が双模倣でない", a);
+        prop_assert_eq!(shared.holds(0, &b), full.holds(0, &b), "{} ⊢ {}", a, b);
+        // 双模倣の類の数（商の大きさ）も同じ
+        let q = |m: &Model| 1 + m.bisim_classes().into_iter().max().unwrap_or(0);
+        prop_assert_eq!(q(&shared), q(&full));
+        prop_assert!(shared.frame_violations().is_empty() || shared.num_points() > 300, "{}", a);
+    }
+
     #[test]
     fn m_a_is_a_model(a in formula()) {
         let m = Model::of(&a, 3);

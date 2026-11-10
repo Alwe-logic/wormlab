@@ -218,8 +218,14 @@ pub fn battle_table(rows: &[BattleRow], name: &str, ord: Option<&str>, more: boo
 /// - `input`：入力の式（worm なら `o(…)` で包んだもの）。α の標準形と違うときだけ最初に書く
 /// - α の標準形（Veblen 表記）、標準形の worm、正規形の括弧語
 /// - 標準の基本列 α[0..fs)（極限のとき）と、worm が作る列 α{0..fs}（worm battle の 1 ステップ）
-/// - `hardy`：Hardy 関数の値 (n, H_α(n))（`None` は大きすぎて打ち切り。"(too large)" と書く）
-pub fn ordinal_summary(input: Option<&str>, a: &Veblen, fs: u64, hardy: &[(u128, Option<u128>)]) -> String {
+/// - `hardy`：Hardy 関数の値 (n, H_α(n))（多倍長。60 桁を超えたら ≈ a×10^k、下界なら > 2^k など。
+///   `None` は計算できなかったもの）
+pub fn ordinal_summary(
+    input: Option<&str>,
+    a: &Veblen,
+    fs: u64,
+    hardy: &[(u128, Option<crate::hierarchy::BigValue>)],
+) -> String {
     let mut lines: Vec<(String, String)> = Vec::new();
     let al = a.to_latex();
     let mut first = true;
@@ -242,7 +248,13 @@ pub fn ordinal_summary(input: Option<&str>, a: &Veblen, fs: u64, hardy: &[(u128,
         None => Worm::from_veblen(a).to_latex(),
     };
     push(format!("o({worm})"), &mut lines);
-    push(format!("o^{{*}}({})", Bracket::from_ordinal(a).to_latex()), &mut lines);
+    // 括弧語は Γ0 未満だけ（Ω・ψ を含む数は括弧語で表せない）。
+    // Γ0 以上の可算な数は impredicative worm の値 p(w) で書く
+    if a.is_predicative() {
+        push(format!("o^{{*}}({})", Bracket::from_ordinal(a).to_latex()), &mut lines);
+    } else if let Some(w) = crate::iworm::IWorm::from_value(a) {
+        push(format!("p({})", w.to_latex()), &mut lines);
+    }
     if a.is_limit() {
         for n in 0..fs {
             if let Some(y) = a.fundamental(n) {
@@ -258,20 +270,22 @@ pub fn ordinal_summary(input: Option<&str>, a: &Veblen, fs: u64, hardy: &[(u128,
             }
         }
     }
+    let mut lines: Vec<(String, String)> = lines.into_iter().map(|(l, r)| (l, format!("= {r}"))).collect();
     if !hardy.is_empty() {
-        let vals: Vec<String> = hardy
+        // 「関係＋右辺」の組（= 24、> 2^{…}、\geq …）。最初の関係の前で揃える
+        let rels: Vec<String> = hardy
             .iter()
-            .map(|(n, v)| match v {
-                Some(v) => format!("H_{{\\alpha}}({n}) = {v}"),
-                None => format!("H_{{\\alpha}}({n}) = \\text{{(too large)}}"),
+            .map(|(_, v)| match v {
+                Some(v) => v.to_latex_relation(),
+                None => "= \\text{(too large)}".to_string(),
             })
             .collect();
-        // 最初の等号を揃えの位置にする
-        let joined = vals.join(",\\quad ");
-        let (l, r) = joined.split_once(" = ").map(|(l, r)| (l.to_string(), r.to_string())).unwrap_or((joined, String::new()));
-        lines.push((l, r));
+        let mut rhs = rels[0].clone();
+        for ((n, _), r) in hardy.iter().zip(&rels).skip(1) {
+            rhs.push_str(&format!(",\\quad H_{{\\alpha}}({n}) {r}"));
+        }
+        lines.push((format!("H_{{\\alpha}}({})", hardy[0].0), rhs));
     }
-    let lines: Vec<(String, String)> = lines.into_iter().map(|(l, r)| (l, format!("= {r}"))).collect();
     align(&lines)
 }
 
@@ -282,21 +296,10 @@ pub fn align(lines: &[(String, String)]) -> String {
     format!("\\begin{{align*}}\n{}\n\\end{{align*}}", body.join(" \\\\\n"))
 }
 
-/// [`ordinal_summary`] に、ε₀ 未満なら Hardy 関数 H_α(1..5) を付けて呼ぶ（Web と CLI で共通）。
-/// 値が大きすぎて打ち切ったら、そこから先の n は計算しない。
+/// [`ordinal_summary`] に、ε₀ 未満なら Hardy 関数 H_α(1..5) を付けて呼ぶ（Web と CLI で共通、
+/// [`crate::hierarchy::hardy_samples`]）。
 pub fn ordinal_block(input: Option<&str>, a: &Veblen, fs: u64) -> String {
-    use crate::hierarchy::{self, Budget};
-    let mut hardy = Vec::new();
-    if a.to_cnf().is_some() {
-        for n in 1..=5u128 {
-            let v = hierarchy::hardy(a, n, Budget { max_steps: 20_000 });
-            hardy.push((n, v));
-            if v.is_none() {
-                break;
-            }
-        }
-    }
-    ordinal_summary(input, a, fs, &hardy)
+    ordinal_summary(input, a, fs, &crate::hierarchy::hardy_samples(a))
 }
 
 /// シーケントの成否：`A \vdash B` か `A \nvdash B`（`\nvdash` は amssymb）。
@@ -313,7 +316,7 @@ pub fn rcbi_form(x: &crate::rcbi::Formula, k: u32) -> Result<String, String> {
         Form::Successor(p) => lines.push(("\\operatorname{pred}(A)".to_string(), format!("= {}", p.to_latex()))),
         Form::Limit => {
             for n in 1..=k {
-                let y = rcbi_order::approx(x, n).ok_or("極限形なのに近似が作れません（バグです）")?;
+                let y = rcbi_order::approx(x, n).ok_or(crate::i18n::tr("極限形なのに近似が作れません（バグです）", "no approximation for a limit form (a bug)"))?;
                 lines.push((format!("(A)_{{{n}}}"), format!("= {}", y.to_latex())));
             }
         }

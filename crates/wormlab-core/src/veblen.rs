@@ -1,4 +1,4 @@
-//! Γ0 未満の順序数を Veblen 関数 φ で表す。
+//! Veblen 関数 φ と、Ω・ψ による順序数の正規形。
 //!
 //! 2 変数の Veblen 関数：
 //! - φ(0, β) = ω^β
@@ -17,7 +17,23 @@
 //!
 //! ε0 未満の範囲では、すべての主項が φ(0, β) = ω^β になり、
 //! これまでの [`Ordinal`]（Cantor 標準形）とちょうど一致する。
+//!
+//! # Γ0 を超える：Ω と ψ（Worms and spiders, arXiv:1605.08867, Def 6.19）
+//!
+//! 主項として Ω（最初の非可算順序数）と ψ(ξ) も使える。C(ξ) は {0, 1, Ω} を含み、
+//! 超指数関数（＝ 加法と φ）と ψ↾ξ で閉じた最小の集合、ψ(ξ) は C(ξ) に入らない最小の数。
+//! ψ(0) = Γ0、ψ(1) = Γ1、…、ψ(Ω) は α ↦ Γ_α の最初の不動点、
+//! ψ(ε_{Ω+1}) が Bachmann–Howard 順序数。表せるのは ψ(Γ_{Ω+1}) 未満。
+//!
+//! Ω と ψ(ξ) は**強臨界数**（φ(α, ·) の不動点がすべての α < 自分 について成り立つ数）で、
+//! φ(α, s) = s（α < s）、φ(s, 0) = s となる。比較では s を「φ(s, 0)」とみなす。
+//!
+//! 正規形の ψ(ξ) は ξ ∈ C(ξ) のものだけ。正規形の項 t について
+//! t ∈ C(ξ) ⟺ K(t) < ξ（K(t) は t の中で他の ψ の内側にない ψ の引数の集合）
+//! なので、C の判定は形だけでできる。ξ ∉ C(ξ) のときの ψ(ξ) は、
+//! ξ 以上で C(z) ∋ z となる最小の z について ψ(z) に等しい（[`Veblen::psi`]）。
 
+use crate::i18n::tr;
 use crate::latex::ToLatex;
 use crate::ordinal::Ordinal;
 use std::cmp::Ordering;
@@ -25,20 +41,39 @@ use std::fmt;
 use std::ops::Add;
 use std::str::FromStr;
 
-/// 主項 φ(a, b)。外から直接作らせず、必ず [`Veblen::phi`] を通す（正規形を保つため）。
+/// 主項（加法的に分解できない数）。外から直接作らせず、必ず [`Veblen::phi`]・
+/// [`Veblen::big_omega`]・[`Veblen::psi`] を通す（正規形を保つため）。
+///
+/// 【Rust メモ】`enum` の各「変種」は別々の形のデータを持てる。`V(a, b)` は 2 つの
+/// 順序数を持ち、`Omega` は何も持たず、`Psi(x)` は 1 つ持つ。
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Phi {
-    a: Veblen,
-    b: Veblen,
+pub enum Prin {
+    /// φ(a, b)（b < φ(a, b)）
+    V(Veblen, Veblen),
+    /// Ω
+    Omega,
+    /// ψ(x)（x ∈ C(x)）
+    Psi(Veblen),
 }
 
-/// Γ0 未満の順序数（正規形）。
+impl Prin {
+    /// 強臨界数（Ω か ψ(x)）か。
+    fn is_critical(&self) -> bool {
+        !matches!(self, Prin::V(..))
+    }
+
+    fn to_veblen(&self) -> Veblen {
+        Veblen { terms: vec![(self.clone(), 1)] }
+    }
+}
+
+/// 順序数（正規形）。
 ///
-/// 【Rust メモ】`Phi` が `Veblen` を含み、`Veblen` が `Vec<(Phi, u64)>` を含む
+/// 【Rust メモ】`Prin` が `Veblen` を含み、`Veblen` が `Vec<(Prin, u64)>` を含む
 /// 「相互再帰」の型。`Vec` は中身をヒープに置くので、型の大きさは有限で済む。
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
 pub struct Veblen {
-    terms: Vec<(Phi, u64)>,
+    terms: Vec<(Prin, u64)>,
 }
 
 // ----------------------------------------------------------------------
@@ -50,33 +85,65 @@ pub struct Veblen {
 /// - a1 < a2 なら b1 と y の比較（φ(a1, ·) は y を不動点に持つので）
 /// - a1 > a2 なら x と b2 の比較（φ(a2, ·) は x を不動点に持つので）
 ///
+/// 強臨界数 s は φ(s, 0) とみなして同じ規則を使う。強臨界数どうしは
+/// ψ(x) < Ω、ψ(x) と ψ(y) は x と y の比較（どちらも正規形なので）。
+///
 /// 【Rust メモ】`derive` ではなく `impl Ord` を手で書くと、比較の意味を
 /// 自分で決められる。`Veblen` の方は `derive(Ord)` のままで、
-/// 「項の列の辞書式順序」になる（中の `Phi` の比較にはこの実装が使われる）。
-impl Ord for Phi {
-    fn cmp(&self, other: &Phi) -> Ordering {
-        match self.a.cmp(&other.a) {
-            Ordering::Equal => self.b.cmp(&other.b),
-            Ordering::Less => cmp_with_phi(&self.b, other),
-            Ordering::Greater => cmp_with_phi(&other.b, self).reverse(),
+/// 「項の列の辞書式順序」になる（中の `Prin` の比較にはこの実装が使われる）。
+impl Ord for Prin {
+    fn cmp(&self, other: &Prin) -> Ordering {
+        use Prin::*;
+        match (self, other) {
+            (V(a1, b1), V(a2, b2)) => match a1.cmp(a2) {
+                Ordering::Equal => b1.cmp(b2),
+                Ordering::Less => cmp_with_prin(b1, other),
+                Ordering::Greater => cmp_with_prin(b2, self).reverse(),
+            },
+            (V(a, b), s) => cmp_phi_critical(a, b, s),
+            (s, V(a, b)) => cmp_phi_critical(a, b, s).reverse(),
+            (Omega, Omega) => Ordering::Equal,
+            (Psi(_), Omega) => Ordering::Less,
+            (Omega, Psi(_)) => Ordering::Greater,
+            (Psi(x), Psi(y)) => x.cmp(y),
         }
     }
 }
 
-impl PartialOrd for Phi {
-    fn partial_cmp(&self, other: &Phi) -> Option<Ordering> {
+impl PartialOrd for Prin {
+    fn partial_cmp(&self, other: &Prin) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-/// 順序数 v と、単独の主項 p（= φ(p.a, p.b)·1）の比較。
-fn cmp_with_phi(v: &Veblen, p: &Phi) -> Ordering {
+/// φ(a, b) と強臨界数 s（= φ(s, 0)）の比較。
+fn cmp_phi_critical(a: &Veblen, b: &Veblen, s: &Prin) -> Ordering {
+    match cmp_with_prin(a, s) {
+        // a < s：s は φ(a, ·) の不動点なので、b と s の比較（正規形では b ≠ s）
+        Ordering::Less => cmp_with_prin(b, s),
+        // a = s：φ(s, b) と φ(s, 0) の比較
+        Ordering::Equal if b.is_zero() => Ordering::Equal,
+        _ => Ordering::Greater,
+    }
+}
+
+/// 順序数 v と、単独の主項 p（係数 1）の比較。
+fn cmp_with_prin(v: &Veblen, p: &Prin) -> Ordering {
     match v.terms.first() {
         None => Ordering::Less, // 0 < p
         Some((q, c)) => match q.cmp(p) {
             Ordering::Equal if *c > 1 || v.terms.len() > 1 => Ordering::Greater,
             o => o,
         },
+    }
+}
+
+/// 主項 q の「一つ目の引数」（強臨界数なら q 自身）が a より大きいか。
+/// そのとき q は φ(a, ·) の不動点。
+fn level_above(q: &Prin, a: &Veblen) -> bool {
+    match q {
+        Prin::V(qa, _) => qa > a,
+        s => cmp_with_prin(a, s) == Ordering::Less,
     }
 }
 
@@ -102,7 +169,13 @@ impl Veblen {
         Self::omega_pow(Self::one())
     }
 
-    /// φ(a, b)。不動点になる場合（b が φ(c, d) で c > a）は b を返す。
+    /// Ω（最初の非可算順序数）
+    pub fn big_omega() -> Self {
+        Prin::Omega.to_veblen()
+    }
+
+    /// φ(a, b)。不動点になる場合（b が φ(c, d) で c > a、または b が a より大きい
+    /// 強臨界数）は b を返し、φ(s, 0)（s は強臨界数）は s を返す。
     pub fn phi(a: Veblen, b: Veblen) -> Veblen {
         Self::phi_mul(a, b, 1)
     }
@@ -114,12 +187,19 @@ impl Veblen {
         }
         // 【Rust メモ】`if let … && 条件` で「パターンに合い、かつ条件も満たす」を一度に書ける
         if let [(q, 1)] = b.terms.as_slice()
-            && q.a > a
+            && level_above(q, &a)
         {
-            // b = φ(q.a, q.b) は φ(a, ·) の不動点
+            // b は φ(a, ·) の不動点
             return Veblen { terms: vec![(q.clone(), c)] };
         }
-        Veblen { terms: vec![(Phi { a, b }, c)] }
+        if b.is_zero()
+            && let [(s, 1)] = a.terms.as_slice()
+            && s.is_critical()
+        {
+            // φ(s, 0) = s
+            return Veblen { terms: vec![(s.clone(), c)] };
+        }
+        Veblen { terms: vec![(Prin::V(a, b), c)] }
     }
 
     /// ω^x = φ(0, x)
@@ -145,6 +225,80 @@ impl Veblen {
         Veblen { terms }
     }
 
+    /// x·n（[`Veblen::mul_nat`]）。係数が u64 に収まらなければ `None`。
+    pub fn checked_mul_nat(&self, n: u64) -> Option<Veblen> {
+        if n == 0 || self.is_zero() {
+            return Some(Self::zero());
+        }
+        let mut terms = self.terms.clone();
+        terms[0].1 = terms[0].1.checked_mul(n)?;
+        Some(Veblen { terms })
+    }
+
+    /// x + y（`+` と同じ）。まとめた係数が u64 に収まらなければ `None`。
+    ///
+    /// 【Rust メモ】`checked_add` は、あふれたら `None` を返す足し算。`?` で `None` をそのまま返せる
+    pub fn checked_add(&self, rhs: &Veblen) -> Option<Veblen> {
+        let Some((lead, lead_c)) = rhs.terms.first() else {
+            return Some(self.clone());
+        };
+        let mut terms = Vec::new();
+        let mut merged = *lead_c;
+        for (p, c) in &self.terms {
+            match p.cmp(lead) {
+                Ordering::Greater => terms.push((p.clone(), *c)),
+                Ordering::Equal => merged = merged.checked_add(*c)?,
+                Ordering::Less => break,
+            }
+        }
+        terms.push((lead.clone(), merged));
+        terms.extend(rhs.terms.iter().skip(1).cloned());
+        Some(Veblen { terms })
+    }
+
+    /// α = β + n（β は 0 か極限、n は有限）と分けて (β, n) を返す。
+    pub fn split_nat(&self) -> (Veblen, u64) {
+        let mut terms = self.terms.clone();
+        match terms.last() {
+            Some((Prin::V(a, b), c)) if a.is_zero() && b.is_zero() => {
+                let n = *c;
+                terms.pop();
+                (Veblen { terms }, n)
+            }
+            _ => (self.clone(), 0),
+        }
+    }
+
+    /// 書き方の大きさ：主項（φ・Ω・ψ）の数を、引数の中まで数えたもの。
+    pub fn size(&self) -> usize {
+        self.terms
+            .iter()
+            .map(|(p, _)| match p {
+                Prin::V(a, b) => 1 + a.size() + b.size(),
+                Prin::Omega => 1,
+                Prin::Psi(x) => 1 + x.size(),
+            })
+            .sum()
+    }
+
+    /// ψ(x)（Worms and spiders, Def 6.19）。x ∈ C(x)（K(x) < x）ならそのまま正規形の ψ(x)。
+    /// そうでなければ、x 以上で z ∈ C(z) となる最小の z を探して ψ(z) を返す
+    /// （C(·) は区間 [x, z] で変わらないので ψ(x) = ψ(z)）。
+    ///
+    /// z の探し方：κ = max K(x) ≥ x なら、κ 自身は正規形なので z ≤ κ。そこで
+    /// x を「C(κ) に入る x 以上の最小の数」に切り上げる（[`ceil_c`]）。z もそこに入るので
+    /// 切り上げても z を飛び越えない。切り上げた数の K は κ 未満になるので、
+    /// max K が真に減っていき、いつか止まる。
+    pub fn psi(x: Veblen) -> Veblen {
+        let mut x = x;
+        loop {
+            match x.max_k() {
+                Some(k) if k >= x => x = ceil_c(&x, &k),
+                _ => return Prin::Psi(x).to_veblen(),
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
     // 問い合わせ
     // ------------------------------------------------------------------
@@ -157,7 +311,7 @@ impl Veblen {
     pub fn as_nat(&self) -> Option<u64> {
         match self.terms.as_slice() {
             [] => Some(0),
-            [(p, c)] if p.a.is_zero() && p.b.is_zero() => Some(*c),
+            [(Prin::V(a, b), c)] if a.is_zero() && b.is_zero() => Some(*c),
             _ => None,
         }
     }
@@ -168,7 +322,7 @@ impl Veblen {
 
     /// 後続順序数か（最後の項が 1 = φ(0, 0)）。
     pub fn is_successor(&self) -> bool {
-        matches!(self.terms.last(), Some((p, _)) if p.a.is_zero() && p.b.is_zero())
+        matches!(self.terms.last(), Some((Prin::V(a, b), _)) if a.is_zero() && b.is_zero())
     }
 
     pub fn is_limit(&self) -> bool {
@@ -180,21 +334,87 @@ impl Veblen {
         matches!(self.terms.as_slice(), [(_, 1)])
     }
 
-    /// 単独の主項 φ(a, b) なら (a, b)。
+    /// 単独の主項 φ(a, b) なら (a, b)。Ω・ψ(x) では `None`（[`Veblen::phi_parts`] を参照）。
     pub fn as_phi(&self) -> Option<(&Veblen, &Veblen)> {
         match self.terms.as_slice() {
-            [(p, 1)] => Some((&p.a, &p.b)),
+            [(Prin::V(a, b), 1)] => Some((a, b)),
             _ => None,
         }
     }
 
-    /// 主項と係数の列。
-    pub fn terms(&self) -> impl Iterator<Item = (&Veblen, &Veblen, u64)> {
-        self.terms.iter().map(|(p, c)| (&p.a, &p.b, *c))
+    /// 単独の主項を φ(a, b) の形で：強臨界数 s は (s, 0)。
+    pub fn phi_parts(&self) -> Option<(Veblen, Veblen)> {
+        match self.terms.as_slice() {
+            [(Prin::V(a, b), 1)] => Some((a.clone(), b.clone())),
+            [(s, 1)] => Some((s.to_veblen(), Veblen::zero())),
+            _ => None,
+        }
+    }
+
+    /// Ω も ψ も含まない（Γ0 未満）か。
+    pub fn is_predicative(&self) -> bool {
+        self.terms.iter().all(|(p, _)| match p {
+            Prin::V(a, b) => a.is_predicative() && b.is_predicative(),
+            _ => false,
+        })
+    }
+
+    /// 可算（Ω 未満）か。
+    pub fn is_countable(&self) -> bool {
+        self < &Veblen::big_omega()
+    }
+
+    /// 単独の主項が ψ(x) なら x。
+    pub fn as_psi(&self) -> Option<&Veblen> {
+        match self.terms.as_slice() {
+            [(Prin::Psi(x), 1)] => Some(x),
+            _ => None,
+        }
+    }
+
+    /// K(t) の最大値：他の ψ の内側にない ψ の引数のうち最大のもの。なければ `None`。
+    pub fn max_k(&self) -> Option<Veblen> {
+        let mut best: Option<Veblen> = None;
+        let mut offer = |k: Option<Veblen>| {
+            if let Some(k) = k
+                && best.as_ref().is_none_or(|b| k > *b)
+            {
+                best = Some(k);
+            }
+        };
+        for (p, _) in &self.terms {
+            match p {
+                Prin::V(a, b) => {
+                    offer(a.max_k());
+                    offer(b.max_k());
+                }
+                Prin::Omega => {}
+                Prin::Psi(x) => offer(Some(x.clone())),
+            }
+        }
+        best
+    }
+
+    /// t ∈ C(ξ)（正規形の t について K(t) < ξ）。
+    pub fn in_c(&self, xi: &Veblen) -> bool {
+        self.max_k().is_none_or(|k| k < *xi)
+    }
+
+    /// 主項と係数の列（主項はそれだけの順序数として）。
+    pub fn principal_terms(&self) -> impl Iterator<Item = (Veblen, u64)> + '_ {
+        self.terms.iter().map(|(p, c)| (p.to_veblen(), *c))
+    }
+
+    /// 主項 φ(a, b) と係数の列 (a, b, c)。強臨界数 s は (s, 0)。
+    pub fn terms(&self) -> impl Iterator<Item = (Veblen, Veblen, u64)> + '_ {
+        self.terms.iter().map(|(p, c)| {
+            let (a, b) = p.to_veblen().phi_parts().expect("単独の主項");
+            (a, b, *c)
+        })
     }
 
     /// Cantor 標準形 ω^{e_1}·c_1 + … の指数の列（係数つき）。
-    /// φ(0, b) の指数は b、φ(a, b)（a > 0）は ω^x = x となる数なので指数は自分自身。
+    /// φ(0, b) の指数は b、φ(a, b)（a > 0）・Ω・ψ(x) は ω^x = x となる数なので指数は自分自身。
     pub fn cnf(&self) -> Vec<(Veblen, u64)> {
         self.terms.iter().map(|(p, c)| (cnf_exponent(p), *c)).collect()
     }
@@ -251,10 +471,12 @@ impl Veblen {
     // ------------------------------------------------------------------
 
     /// α = β + φ(a, b)·c（最後の項）と分けて (β, a, b, c) を返す。α = 0 なら `None`。
+    /// 最後の項が強臨界数 s なら (β, s, 0, c)。
     pub fn split_last(&self) -> Option<(Veblen, Veblen, Veblen, u64)> {
         let mut terms = self.terms.clone();
         let (p, c) = terms.pop()?;
-        Some((Veblen { terms }, p.a, p.b, c))
+        let (a, b) = p.to_veblen().phi_parts().expect("単独の主項");
+        Some((Veblen { terms }, a, b, c))
     }
 
     /// 後続順序数 β + 1 なら β。そうでなければ `None`。
@@ -273,6 +495,7 @@ impl Veblen {
     }
 
     /// 基本列 α[n]（標準的な定義）。α = 0 なら `None`、後続順序数なら直前の数。
+    /// Ω・ψ を含む数では（まだ）定義していないので `None`。
     ///
     /// 極限順序数 α = β + φ(a, b) では α[n] = β + φ(a, b)[n] とし、主項は
     /// ```text
@@ -287,7 +510,7 @@ impl Veblen {
     /// 例：ω[n] = n、ε_0[n] = ω^ω^…（n 段）、φ(2, 0)[n] = ε_ε_…（n 段）。
     /// どの n でも α[n] < α で、n について増加し、上限が α になる。
     pub fn fundamental(&self, n: u64) -> Option<Veblen> {
-        if self.is_zero() {
+        if self.is_zero() || !self.is_predicative() {
             return None;
         }
         if self.is_successor() {
@@ -298,25 +521,91 @@ impl Veblen {
         if c > 1 {
             terms.push((p.clone(), c - 1));
         }
-        Some(Veblen { terms } + fundamental_phi(&p, n))
+        let Prin::V(a, b) = &p else { unreachable!("述語的な数の主項は φ") };
+        Some(Veblen { terms } + fundamental_phi(a, b, n))
     }
 
     /// ε0 未満なら Cantor 標準形の [`Ordinal`] に変換する。
     pub fn to_cnf(&self) -> Option<Ordinal> {
         let mut out = Ordinal::zero();
         for (p, c) in &self.terms {
-            if !p.a.is_zero() {
-                return None;
+            match p {
+                Prin::V(a, b) if a.is_zero() => out = out + Ordinal::omega_pow_mul(b.to_cnf()?, *c),
+                _ => return None,
             }
-            out = out + Ordinal::omega_pow_mul(p.b.to_cnf()?, *c);
         }
         Some(out)
     }
 }
 
-/// 極限の主項 φ(a, b)（1 = φ(0, 0) 以外）の基本列。
-fn fundamental_phi(p: &Phi, n: u64) -> Veblen {
-    let (a, b) = (&p.a, &p.b);
+/// x 以上で C(κ) に入る最小の数（K(z) < κ となる最小の z ≥ x）。
+///
+/// x = P_1·c_1 + P_2·c_2 + …（主項は減少）で、最初に C(κ) に入らない主項 P_i を
+/// 「C(κ) に入る P_i より大きい最小の主項」に置き換え、後ろを捨てる（[`next_prin`]）。
+fn ceil_c(x: &Veblen, k: &Veblen) -> Veblen {
+    let mut prefix = Veblen::zero();
+    for (p, c) in &x.terms {
+        if p.to_veblen().in_c(k) {
+            prefix.terms.push((p.clone(), *c));
+        } else {
+            return prefix + next_prin(p, k);
+        }
+    }
+    x.clone()
+}
+
+/// C(κ) に入らない主項 P より大きく、C(κ) に入る最小の主項。
+/// - P が可算：C(κ) の可算な部分は ψ(κ) 未満の数全体で P はその外なので、答えは Ω。
+/// - P = φ(a, b)、a ∈ C(κ)：φ(a, ceil(b))。
+/// - P = φ(a, b)、a ∉ C(κ)：a' = ceil(a) として φ(a', ceil(e))（e は φ(a', e) > b となる最小の数）。
+///
+/// （証明：答え Q の正規形を φ(c, d) とすると、c < a なら d > P で d の先頭の主項が
+/// もっと小さい答えになるので c ≥ a。c = a なら d ≥ ceil(b)。c > a なら Q は φ(a, ·)
+/// （または φ(a', ·)）の不動点で、Q = φ(a, Q) と書き直せる。）
+fn next_prin(p: &Prin, k: &Veblen) -> Veblen {
+    let pv = p.to_veblen();
+    if pv.is_countable() {
+        return Veblen::big_omega();
+    }
+    match p {
+        Prin::V(a, b) => {
+            if a.in_c(k) {
+                Veblen::phi(a.clone(), ceil_c(b, k))
+            } else {
+                let a2 = ceil_c(a, k);
+                let e = least_arg_above(&a2, b);
+                Veblen::phi(a2, ceil_c(&e, k))
+            }
+        }
+        _ => unreachable!("Ω は C(κ) に入り、ψ(x) は可算"),
+    }
+}
+
+/// φ(a, e) > b となる最小の e。
+fn least_arg_above(a: &Veblen, b: &Veblen) -> Veblen {
+    if *b < Veblen::phi(a.clone(), Veblen::zero()) {
+        return Veblen::zero();
+    }
+    // φ(a, e) は主項なので、φ(a, e) > b ⟺ φ(a, e) > B（B は b の先頭の主項）
+    let lead = &b.terms[0].0;
+    match lead {
+        Prin::V(c, d) => match a.cmp(c) {
+            // B は φ(a, ·) の不動点：φ(a, e) > B ⟺ e > B
+            Ordering::Less => lead.to_veblen() + Veblen::one(),
+            Ordering::Equal => d.clone() + Veblen::one(),
+            // φ(a, e) > φ(c, d) ⟺ φ(a, e) > d
+            Ordering::Greater => least_arg_above(a, d),
+        },
+        s => match cmp_with_prin(a, s) {
+            Ordering::Less => s.to_veblen() + Veblen::one(),
+            Ordering::Equal => Veblen::one(),
+            Ordering::Greater => Veblen::zero(),
+        },
+    }
+}
+
+/// 極限の主項 φ(a, b)（1 = φ(0, 0) 以外、述語的）の基本列。
+fn fundamental_phi(a: &Veblen, b: &Veblen, n: u64) -> Veblen {
     if a.is_zero() {
         // ω^b（b ≥ 1）
         return match b.pred() {
@@ -342,22 +631,17 @@ fn fundamental_phi(p: &Phi, n: u64) -> Veblen {
     }
 }
 
-fn cnf_exponent(p: &Phi) -> Veblen {
-    if p.a.is_zero() {
-        p.b.clone()
-    } else {
-        Veblen { terms: vec![(p.clone(), 1)] }
+fn cnf_exponent(p: &Prin) -> Veblen {
+    match p {
+        Prin::V(a, b) if a.is_zero() => b.clone(),
+        _ => p.to_veblen(),
     }
 }
 
 impl From<&Ordinal> for Veblen {
     /// Cantor 標準形（ε0 未満）からの変換。
     fn from(x: &Ordinal) -> Veblen {
-        let terms = x
-            .terms()
-            .iter()
-            .map(|(e, c)| (Phi { a: Veblen::zero(), b: Veblen::from(e) }, *c))
-            .collect();
+        let terms = x.terms().iter().map(|(e, c)| (Prin::V(Veblen::zero(), Veblen::from(e)), *c)).collect();
         Veblen { terms }
     }
 }
@@ -398,10 +682,13 @@ impl fmt::Display for Veblen {
             .terms
             .iter()
             .map(|(p, c)| {
-                if p.a.is_zero() && p.b.is_zero() {
+                if let Prin::V(a, b) = p
+                    && a.is_zero()
+                    && b.is_zero()
+                {
                     return c.to_string(); // 有限部分
                 }
-                let base = phi_to_string(p);
+                let base = prin_to_string(p);
                 if *c == 1 { base } else { format!("{base}·{c}") }
             })
             .collect();
@@ -420,15 +707,15 @@ impl ToLatex for Veblen {
             .terms
             .iter()
             .map(|(p, c)| {
-                if p.a.is_zero() && p.b.is_zero() {
-                    return c.to_string();
-                }
-                let base = if p.a.is_zero() {
-                    if p.b.as_nat() == Some(1) { "\\omega".to_string() } else { format!("\\omega^{{{}}}", p.b.to_latex()) }
-                } else if p.a.as_nat() == Some(1) {
-                    format!("\\varepsilon_{{{}}}", p.b.to_latex())
-                } else {
-                    format!("\\varphi({}, {})", p.a.to_latex(), p.b.to_latex())
+                let base = match p {
+                    Prin::Omega => "\\Omega".to_string(),
+                    Prin::Psi(x) => format!("\\psi({})", x.to_latex()),
+                    Prin::V(a, b) if a.is_zero() && b.is_zero() => return c.to_string(),
+                    Prin::V(a, b) if a.is_zero() => {
+                        if b.as_nat() == Some(1) { "\\omega".to_string() } else { format!("\\omega^{{{}}}", b.to_latex()) }
+                    }
+                    Prin::V(a, b) if a.as_nat() == Some(1) => format!("\\varepsilon_{{{}}}", b.to_latex()),
+                    Prin::V(a, b) => format!("\\varphi({}, {})", a.to_latex(), b.to_latex()),
                 };
                 if *c == 1 { base } else { format!("{base} \\cdot {c}") }
             })
@@ -437,21 +724,26 @@ impl ToLatex for Veblen {
     }
 }
 
-fn phi_to_string(p: &Phi) -> String {
-    if p.a.is_zero() {
-        match p.b.as_nat() {
+fn prin_to_string(p: &Prin) -> String {
+    let (a, b) = match p {
+        Prin::Omega => return "Ω".to_string(),
+        Prin::Psi(x) => return format!("ψ({x})"),
+        Prin::V(a, b) => (a, b),
+    };
+    if a.is_zero() {
+        match b.as_nat() {
             Some(1) => "ω".to_string(),
-            _ if p.b.is_finite() || p.b.is_principal() => format!("ω^{}", p.b),
-            _ => format!("ω^({})", p.b),
+            _ if b.is_finite() || b.is_principal() => format!("ω^{b}"),
+            _ => format!("ω^({b})"),
         }
-    } else if p.a.as_nat() == Some(1) {
-        if p.b.is_finite() || p.b == Veblen::omega() {
-            format!("ε_{}", p.b)
+    } else if a.as_nat() == Some(1) {
+        if b.is_finite() || *b == Veblen::omega() || *b == Veblen::big_omega() {
+            format!("ε_{b}")
         } else {
-            format!("ε_({})", p.b)
+            format!("ε_({b})")
         }
     } else {
-        format!("φ({}, {})", p.a, p.b)
+        format!("φ({a}, {b})")
     }
 }
 
@@ -462,14 +754,15 @@ fn phi_to_string(p: &Phi) -> String {
 //   expr   := term ('+' term)*
 //   term   := factor (('·' | '*') 自然数)?
 //   factor := 自然数 | ('ω' | 'w') ('^' factor)? | ('ε' | 'e') '_' factor
-//           | ('φ' | 'phi') '(' expr ',' expr ')' | '(' expr ')'
+//           | ('φ' | 'phi') '(' expr ',' expr ')' | ('Ω' | 'O') | ('ψ' | 'psi') '(' expr ')'
+//           | '(' expr ')'
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseOrdinalError(pub String);
 
 impl fmt::Display for ParseOrdinalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "順序数として読めません: {}", self.0)
+        write!(f, "{}: {}", tr("順序数として読めません", "cannot read as an ordinal"), self.0)
     }
 }
 
@@ -510,7 +803,7 @@ impl P {
     }
     fn err<T>(&self) -> Result<T, ParseOrdinalError> {
         let rest: String = self.s[self.i.min(self.s.len())..].iter().collect();
-        Err(ParseOrdinalError(format!("「{rest}」の付近")))
+        Err(ParseOrdinalError(if crate::i18n::is_en() { format!("near “{rest}”") } else { format!("「{rest}」の付近") }))
     }
     fn nat(&mut self) -> Option<u64> {
         self.ws();
@@ -557,6 +850,19 @@ impl P {
             }
             return Ok(Veblen::phi(a, b));
         }
+        if self.eat('Ω') || self.eat('O') {
+            return Ok(Veblen::big_omega());
+        }
+        if self.eat_str("psi") || self.eat('ψ') {
+            if !self.eat('(') {
+                return self.err();
+            }
+            let x = self.expr()?;
+            if !self.eat(')') {
+                return self.err();
+            }
+            return Ok(Veblen::psi(x));
+        }
         if self.eat('ω') || self.eat('w') {
             if self.eat('^') {
                 return Ok(Veblen::omega_pow(self.factor()?));
@@ -580,7 +886,8 @@ impl P {
     }
 }
 
-/// `"ω^(ω + 1)·2 + 3"`, `"ε_0"`, `"e_(w+1)"`, `"φ(2, 0)"`, `"phi(w, 1)"` などを読む。
+/// `"ω^(ω + 1)·2 + 3"`, `"ε_0"`, `"e_(w+1)"`, `"φ(2, 0)"`, `"phi(w, 1)"`、
+/// `"ψ(ε_(Ω + 1))"`, `"psi(O·2)"` などを読む。
 /// 読んだ式は計算して正規形にする（例：`"ω^ε_0"` は `ε_0` になる）。
 impl FromStr for Veblen {
     type Err = ParseOrdinalError;
@@ -657,6 +964,51 @@ mod tests {
         assert_eq!(v("ω + ε_1").last_exponent(), v("ε_1"));
         assert_eq!(v("ω·3 + 2").mul_nat(2), v("ω·6 + 2"));
         assert_eq!(v("ε_0·2 + ω^ε_1"), v("ε_1")); // ω^ε_1 = ε_1 が前を吸収する
+    }
+
+    #[test]
+    fn psi_known_values() {
+        // ψ(0) = Γ0 はどの述語的な数より大きい
+        assert!(v("ψ(0)") > v("φ(φ(φ(2, 0), 0), 0)"));
+        assert!(v("ψ(0)") > v("φ(ω^ω + 1, ε_(φ(3, 0)))"));
+        // 強臨界数：φ(a, s) = s（a < s）、φ(s, 0) = s、ω^s = s
+        assert_eq!(v("φ(1, ψ(0))"), v("ψ(0)"));
+        assert_eq!(v("ω^ψ(0)"), v("ψ(0)"));
+        assert_eq!(v("φ(ψ(0), 0)"), v("ψ(0)"));
+        assert_eq!(v("φ(ω, Ω)"), v("Ω"));
+        assert_eq!(v("φ(ψ(Ω), Ω)"), v("Ω"));
+        assert_eq!(v("φ(Ω, 0)"), v("Ω"));
+        // Γ0 < φ(Γ0, 1) < Γ1 = ψ(1) < … < ψ(ω) < ψ(Γ0) < ψ(Ω)
+        let chain = [
+            "φ(ψ(0), 0) + 1", "φ(1, ψ(0) + 1)", "φ(ψ(0), 1)", "φ(ψ(0) + 1, 0)", "ψ(1)", "ψ(2)", "ψ(ω)",
+            "ψ(ψ(0))", "ψ(ψ(ψ(0)))", "ψ(Ω)", "ψ(Ω) + 1", "ψ(Ω + 1)", "ψ(Ω + ψ(Ω))", "ψ(Ω·2)",
+            "ψ(ω^(Ω + 1))", "ψ(ε_(Ω + 1))", "ψ(φ(Ω, 1))", "ψ(φ(Ω, ω))", "Ω", "Ω + ψ(Ω)", "Ω·2",
+            "ε_(Ω + 1)", "φ(Ω, 1)", "φ(Ω, Ω)", "φ(Ω + 1, 0)", "φ(φ(Ω, 1), 0)",
+        ];
+        assert!(v("ψ(0)") < v(chain[0]));
+        for w in chain.windows(2) {
+            assert!(v(w[0]) < v(w[1]), "{} < {} のはず", w[0], w[1]);
+        }
+    }
+
+    #[test]
+    fn psi_collapse() {
+        // ξ ∉ C(ξ) なら、ξ 以上で C(z) ∋ z となる最小の z について ψ(ξ) = ψ(z)
+        assert_eq!(v("ψ(ψ(Ω))"), v("ψ(Ω)"));
+        assert_eq!(v("ψ(ψ(Ω) + 1)"), v("ψ(Ω)"));
+        assert_eq!(v("ψ(ψ(Ω)·2)"), v("ψ(Ω)"));
+        assert_eq!(v("ψ(Ω + ψ(Ω·2))"), v("ψ(Ω·2)"));
+        // ψ(Ω·2 + 1) は ψ(Ω·2) より大きいが、Ω + ψ(Ω·2 + 1) からは ψ(Ω·2) までしか届かない
+        assert_eq!(v("ψ(Ω + ψ(Ω·2 + 1))"), v("ψ(Ω·2)"));
+        assert_eq!(v("ψ(ψ(ε_(Ω + 1)))"), v("ψ(Ω)"));
+        // 正規形の例（K(ξ) < ξ）
+        assert_eq!(v("ψ(Ω + ψ(Ω))").as_psi(), Some(&v("Ω + ψ(Ω)")));
+        assert_eq!(v("ψ(ψ(0))").as_psi(), Some(&v("ψ(0)")));
+        // 表示と読み直し
+        for s in ["ψ(0)", "Ω", "ψ(Ω + ψ(Ω))·2 + ω", "φ(Ω, ψ(Ω) + 1)", "ε_(Ω + 1)", "ω^(Ω + 1)", "ψ(φ(Ω, ω))"] {
+            assert_eq!(v(s).to_string(), s);
+        }
+        assert!(v("ψ(Ω)").is_countable() && !v("Ω").is_countable() && !v("ψ(0)").is_predicative());
     }
 
     #[test]
