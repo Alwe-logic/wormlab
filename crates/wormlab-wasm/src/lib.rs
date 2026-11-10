@@ -1149,6 +1149,13 @@ pub fn ordinal_notations() -> String {
 const MAX_RENDER_ITEMS: usize = 500;
 const MAX_RENDER_CHARS: usize = 3_000;
 
+/// 定義集（Web の「定義」タブ）：ゲーム・順序数上の関数・表記と順序数・意味論の定義を分類ごとに（今の言語で）。
+/// 各定義に文字の式・LaTeX・出典・関連・試せるタブ・wormlab-core で計算した例が付く。
+#[wasm_bindgen]
+pub fn glossary() -> String {
+    out(Ok(json!(wormlab_core::glossary::all())))
+}
+
 /// 式の計算で使う定義の一覧（足し算・掛け算・べき乗・φ・ε・e^α・Ω・ψ・標準形。出典つき）。
 #[wasm_bindgen]
 pub fn ordinal_definitions() -> String {
@@ -1520,6 +1527,23 @@ mod tests {
     }
 
     #[test]
+    fn glossary_list() {
+        set_lang("ja");
+        let v = parse(&glossary());
+        let cats = v.as_array().unwrap();
+        assert_eq!(cats.len(), 4);
+        let entries: Vec<&Value> = cats.iter().flat_map(|c| c["entries"].as_array().unwrap()).collect();
+        assert!(entries.len() >= 30, "{}", entries.len());
+        for e in &entries {
+            assert!(e["latex"].as_str().unwrap().starts_with("\\begin{align*}"), "{}", e["key"]);
+            assert!(e["lines"].as_array().is_some_and(|l| !l.is_empty()));
+        }
+        let wb = entries.iter().find(|e| e["key"] == "worm-battle").unwrap();
+        assert_eq!(wb["tab"], "battle");
+        assert!(wb["examples"][1].as_str().unwrap().contains("1 1 0 2"));
+    }
+
+    #[test]
     fn rule_lists() {
         set_lang("ja");
         let v = parse(&rules());
@@ -1562,6 +1586,7 @@ mod tests {
             ordinal_info("ordinal", ""),
             ordinal_info("other", "1"),
             ordinal_compare("worm", "1 1", "ordinal", "ω^2"),
+            glossary(),
             ordinal_arith("+", "ordinal", "ω^2 + ω + 1", "ordinal", "ω^2·3 + 1"),
             ordinal_arith("+", "ordinal", "ω^2", "ordinal", "ω^2"),
             ordinal_arith("+", "ordinal", "ω", "ordinal", "1"),

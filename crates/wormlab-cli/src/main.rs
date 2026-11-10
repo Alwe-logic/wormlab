@@ -30,7 +30,7 @@
 //!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
 //!   wormlab rules [体系]             各体系（rc・wc・bc・bwc・rcbi）の公理と規則の一覧（--json 可）
 //!   wormlab expr "e^ω(1) + ψ(0)"     順序数の式（+・·・^・φ・ε・e^α・ψ）を使った定義つきで標準形に（--latex 可）
-//!   wormlab defs                     式の計算で使う定義の一覧（出典つき）
+//!   wormlab defs [分類|鍵]           定義集：ゲーム・順序数上の関数・表記と順序数・意味論（出典・計算した例つき。--json・--latex）
 //!   wormlab forms "ε_0 + 1"          同じ順序数をいろいろな標準形で（Veblen・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 //!
 //! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
@@ -46,6 +46,7 @@ use std::io::BufRead;
 use std::process::ExitCode;
 use wormlab_core::arith;
 use wormlab_core::expr;
+use wormlab_core::glossary;
 use wormlab_core::notation;
 use wormlab_core::repeats;
 use wormlab_core::wc::{self, WcProof};
@@ -391,7 +392,7 @@ fn run(args: &[String]) -> Result<(), String> {
         .collect();
     let args = args.as_slice();
     // --latex に対応していない命令
-    let no_latex = ["table", "lt", "thm52", "hardy", "blen", "rules", "defs", "forms"];
+    let no_latex = ["table", "lt", "thm52", "hardy", "blen", "rules", "forms"];
     if let Some(cmd) = args.first().filter(|c| tex.is_some() && no_latex.contains(&c.as_str())) {
         return Err(format!("{cmd} は --latex に対応していません"));
     }
@@ -934,13 +935,50 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
-        [cmd] if cmd == "defs" => {
-            for d in expr::definitions() {
-                println!("{}  {}", d.symbol, d.name);
-                for l in &d.lines {
-                    println!("  ・{l}");
+        [cmd, rest @ ..] if cmd == "defs" && rest.len() <= 1 => {
+            // 定義集：引数なしなら全部、分類（games・functions・notations・semantics）か定義の鍵なら、それだけ
+            let mut cats = glossary::all();
+            if let Some(q) = rest.first() {
+                if let Some(c) = cats.iter().find(|c| c.id == q.as_str()).cloned() {
+                    cats = vec![c];
+                } else {
+                    let e = glossary::get(q).ok_or_else(|| {
+                        let keys: Vec<&str> = glossary::all().iter().flat_map(|c| c.entries.iter().map(|e| e.key).collect::<Vec<_>>()).collect();
+                        format!("分類（games・functions・notations・semantics）か定義の鍵を指定してください: {q}\n鍵: {}", keys.join(" "))
+                    })?;
+                    let mut c = cats.into_iter().find(|c| c.entries.iter().any(|x| x.key == e.key)).expect("鍵のある分類");
+                    c.entries = vec![e];
+                    cats = vec![c];
                 }
-                println!("  出典: {}\n", d.source);
+            }
+            if let Some(t) = tex {
+                // 【Rust メモ】flat_map で「分類の中の定義」を 1 列に並べ、それぞれの LaTeX を取り出す
+                t.emit(cats.iter().flat_map(|c| c.entries.iter().map(|e| format!("% {} {}\n{}", e.key, e.symbol, e.latex))).collect());
+                return Ok(());
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&cats).map_err(|e| e.to_string())?);
+                return Ok(());
+            }
+            for c in &cats {
+                println!("■ {}（{}）\n  {}\n", c.name, c.id, c.lead);
+                for e in &c.entries {
+                    let research = if e.research { "（研究中）" } else { "" };
+                    println!("{}  {}  [{}]{research}", e.symbol, e.name, e.key);
+                    for l in &e.lines {
+                        println!("  ・{l}");
+                    }
+                    if !e.examples.is_empty() {
+                        println!("  例（wormlab で計算）:");
+                        for x in &e.examples {
+                            println!("    {x}");
+                        }
+                    }
+                    if !e.related.is_empty() {
+                        println!("  関連: {}", e.related.join(" "));
+                    }
+                    println!("  出典: {}\n", e.source);
+                }
             }
             Ok(())
         }
@@ -1128,7 +1166,7 @@ const USAGE: &str = "使い方:
   wormlab blen   <順序数>          worm battle と標準 battle の長さ（多倍長。--full で全桁、--bits=N で上限）
   wormlab rules  [体系]            公理と規則の一覧（体系は rc・wc・bc・bwc・rcbi、省略なら全部。--json 可）
   wormlab expr   <式>              順序数の式（+・·・^・φ(α,β)・ε_α・e^α(β)・ψ(α)）を、使った定義つきで 1 段ずつ標準形に
-  wormlab defs                     expr で使う定義の一覧（φ・超指数関数・ψ など、出典つき）
+  wormlab defs [分類|鍵]           定義集（games・functions・notations・semantics か、worm-battle などの鍵。--json・--latex 可）
   wormlab forms  <順序数>          同じ順序数をいろいろな標準形で（Veblen・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 worm の書き方: \"1 0 2\", \"<1><0><2>T\", \"⊤\" など
   文字が順序数の worm: \"<ω+1><0><ε_0>\" または \"ω+1, 0, ε_0\"（ord・cmp・lt・wc・wclt で使える）

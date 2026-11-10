@@ -75,7 +75,8 @@ cargo run -q --release -- blen "ω^2 + ω·18"   # 多倍長：31 万桁の長�
 cargo run -q -- thm52 2                       # G(2) > 2^(4.23×10^455)
 cargo run -q -- rules bwc                     # 公理と規則の一覧（rc・wc・bc・bwc・rcbi、省略なら全部。--json 可）
 cargo run -q -- expr "e^(ω + 1)(1) + ψ(Ω + ψ(Ω·2 + 1))"  # 式（+・·・^・φ・ε・超指数 e^α・ψ）を、使った定義つきで 1 段ずつ標準形に
-cargo run -q -- defs                          # 式の計算で使う定義の一覧（Veblen 関数・超指数関数・ψ など、出典つき）
+cargo run -q -- defs                          # 定義集：ゲーム・順序数上の関数・表記と順序数・意味論（出典・wormlab で計算した例つき）
+cargo run -q -- defs worm-battle --latex       # 1 つの定義（鍵）か分類（games・functions・notations・semantics）だけ。--json も
 cargo run -q -- forms "φ(2, 0) + ε_0·2 + 3"   # 同じ順序数をいろいろな標準形で（Veblen 形・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 cargo run --release -p wormlab-core --example battles   # battle の長さの比較表
 cargo run -q -- wclt 0 "<ω><ω>" "<ε_0>"       # 順序数の worm の WC 証明
@@ -108,7 +109,7 @@ cargo run -q -- battle "2 0 2" 10 --latex                      # battle の表
 - モデル：TikZ（Web の図と同じ配置）。`--rel=all` で閉包後の辺も、`--rel=11,down` のように関係を選んでも描ける
   （名前は記号を省いて書く：R¹₁ → `11`、R²₂ → `22`、R↓ → `down`、R∇ → `nabla`、RC の R_1 → `1`）
 - 使うパッケージは amsmath・amssymb・bussproofs・tikz（`--standalone` のプリアンブルに入っている）
-- `table`・`lt`・`thm52`・`hardy`・`blen`・`rules`・`defs` は対象外
+- `table`・`lt`・`thm52`・`hardy`・`blen`・`rules`・`forms` は対象外
 
 ## ロードマップ
 

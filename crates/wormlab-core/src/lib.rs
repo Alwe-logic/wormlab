@@ -44,6 +44,7 @@
 //! - [`i18n`]：利用者に見せる文の言語（日本語・英語。既定は日本語、Web が英語に切り替える）
 //! - [`cworm`]：繰り返しでまとめたまま進める worm battle（長さは多倍長、順序数も worm を広げずに）
 //! - [`repeats`]：長い worm・括弧語を、隣り合う繰り返しでまとめて (ab)^k と書く（battle を読みやすく）
+//! - [`glossary`]：定義集。ゲーム・順序数上の関数・表記と順序数の対応・体系の意味論の定義を出典つきで（Web の「定義」タブ・CLI の `defs`）。例は実装を呼んで作る
 //! - [`rules`]：各体系（RC・WC・BC・BWC・RC_BI）の公理と規則の一覧（Web の「規則」タブ・CLI の `rules`）
 //! - [`latex`]：式・順序数・証明（bussproofs の木と行番号つきの一覧）・battle を LaTeX に
 //! - [`modelview`]：Kripke モデルの表示用の形（点の配置つき）と TikZ への書き出し
@@ -56,6 +57,7 @@ pub mod bracket;
 pub mod bwc;
 pub mod cworm;
 pub mod expr;
+pub mod glossary;
 pub mod headbody;
 pub mod hierarchy;
 pub mod i18n;
