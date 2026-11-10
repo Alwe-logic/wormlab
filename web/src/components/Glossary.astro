@@ -1,0 +1,249 @@
+---
+// 定義のタブ：wormlab で使うゲーム・順序数上の関数・表記と順序数の対応・体系の意味論の定義を、分類ごとに並べる。
+// 中身は Rust（wormlab-core/src/glossary.rs、wasm の glossary）が作る。「計算した例」はその場で実装を呼んで作ったもの。
+// ほかのタブの「定義」のボタン（data-def="鍵"）からは、dom.ts の showDefinition でここの定義に飛ぶ。
+---
+
+<section class="panel" data-panel="defs">
+  <p
+    class="lead"
+    data-en="Every definition used in wormlab, with sources: the games (battles), the functions on ordinals, how notations denote ordinals, and the semantics of the calculi. The examples under each definition are computed on the spot by wormlab-core, so they always match the implementation. The inference rules are on the Rules tab."
+  >
+    wormlab で使う定義を、出典つきで一か所に集めました。ゲーム（battle）、順序数上の関数、表記と順序数の対応、体系の意味論です。
+    各定義の「計算した例」は、その場で wormlab-core を呼んで作っているので、いつも実装と一致します。推論規則は「規則」のタブにあります。
+  </p>
+  <div class="card gl-tools">
+    <div class="controls">
+      <input
+        type="search"
+        id="gl-search"
+        placeholder="記号・名前・本文で絞り込む（例：ψ、battle、基本列）"
+        aria-label="定義を絞り込む"
+        data-en-placeholder="Filter by symbol, name or text (e.g. ψ, battle, fundamental)"
+        data-en-aria-label="Filter definitions"
+      />
+    </div>
+    <nav class="gl-index" id="gl-index" aria-label="定義の目次" data-en-aria-label="Index of definitions"></nav>
+    <div class="status" id="gl-status" aria-live="polite"></div>
+  </div>
+  <div id="gl-body"></div>
+</section>
+
+<script>
+  import { call } from '../lib/wasm';
+  import { busyText, byId, DEFS_EVENT, h, setStatus, showDefinition } from '../lib/dom';
+  import { lang, onLang, tr } from '../lib/i18n';
+  import { texBlock } from '../lib/latex';
+
+  interface Entry {
+    key: string;
+    symbol: string;
+    name: string;
+    lines: string[];
+    latex: string;
+    examples: string[];
+    source: string;
+    related: string[];
+    tab: string | null;
+    research: boolean;
+  }
+
+  interface Category {
+    id: string;
+    name: string;
+    lead: string;
+    entries: Entry[];
+  }
+
+  const TAB_NAMES: Record<string, [string, string]> = {
+    battle: ['battle', 'battle'],
+    ordinal: ['順序数電卓', 'ordinals'],
+    proof: ['証明', 'proofs'],
+    rules: ['規則', 'rules'],
+    model: ['Kripke モデル', 'Kripke models'],
+  };
+
+  const search = byId<HTMLInputElement>('gl-search');
+  const index = byId('gl-index');
+  const body = byId('gl-body');
+  const status = byId('gl-status');
+
+  let cats: Category[] = [];
+  let loadedLang = '';
+  let loading: Promise<void> | null = null;
+
+  const byKey = () => new Map(cats.flatMap((c) => c.entries.map((e) => [e.key, e] as const)));
+
+  function entryEl(e: Entry, all: Map<string, Entry>): HTMLElement {
+    const head = h(
+      'h3',
+      { class: 'gl-head' },
+      h('span', { class: 'gl-sym' }, e.symbol),
+      h('span', { class: 'gl-name' }, e.name),
+      e.research ? h('span', { class: 'gl-badge' }, tr('研究中（草稿）', 'research (draft)')) : null,
+    );
+    // LaTeX は開いたときに作る（MathJax をまとめて読まないように）
+    const tex = h('details', { class: 'gl-tex' }, h('summary', {}, 'LaTeX'));
+    tex.addEventListener('toggle', () => {
+      if (tex.open && !tex.querySelector('.tex')) {
+        tex.append(texBlock({ title: `${e.symbol}  ${e.name}`, code: e.latex, note: tr('\\begin{align*} は amsmath。', '\\begin{align*} needs amsmath.') }).el);
+      }
+    });
+    const related = e.related
+      .map((k) => all.get(k))
+      .filter((r): r is Entry => r !== undefined)
+      .map((r) => h('button', { type: 'button', class: 'small gl-chip', 'data-def': r.key, title: r.name }, r.symbol === r.name ? r.name : `${r.symbol}  ${r.name}`));
+    const tab = e.tab
+      ? h(
+          'a',
+          { class: 'gl-try', href: `#${e.tab}` },
+          tr(`「${TAB_NAMES[e.tab]?.[0] ?? e.tab}」のタブで試す →`, `Try it on the ${TAB_NAMES[e.tab]?.[1] ?? e.tab} tab →`),
+        )
+      : null;
+    return h(
+      'article',
+      { class: 'gl-entry', id: `gl-${e.key}`, 'data-key': e.key },
+      head,
+      h('ul', { class: 'gl-lines' }, ...e.lines.map((l) => h('li', {}, l))),
+      e.examples.length
+        ? h(
+            'div',
+            { class: 'gl-ex' },
+            h('div', { class: 'gl-label' }, tr('wormlab で計算した例', 'Examples computed by wormlab')),
+            h('ul', {}, ...e.examples.map((x) => h('li', {}, x))),
+          )
+        : null,
+      related.length ? h('div', { class: 'gl-related' }, h('span', { class: 'gl-label' }, tr('関連', 'Related')), ...related) : null,
+      h('div', { class: 'gl-src' }, tr('出典：', 'Source: '), e.source),
+      h('div', { class: 'gl-foot' }, tex, tab),
+    );
+  }
+
+  function render() {
+    const all = byKey();
+    index.replaceChildren(
+      ...cats.map((c) =>
+        h(
+          'div',
+          { class: 'gl-index-row', 'data-cat': c.id },
+          h('a', { class: 'gl-index-cat', href: `#defs`, 'data-cat-link': c.id }, c.name),
+          ...c.entries.map((e) => h('button', { type: 'button', class: 'small gl-chip', 'data-def': e.key, title: e.name }, e.symbol)),
+        ),
+      ),
+    );
+    for (const a of index.querySelectorAll<HTMLAnchorElement>('[data-cat-link]')) {
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        byId(`gl-cat-${a.dataset.catLink}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+    body.replaceChildren(
+      ...cats.map((c) =>
+        h(
+          'div',
+          { class: 'card gl-cat', id: `gl-cat-${c.id}` },
+          h('h2', {}, c.name),
+          h('p', { class: 'muted gl-lead' }, c.lead),
+          ...c.entries.map((e) => entryEl(e, all)),
+        ),
+      ),
+    );
+    filter();
+  }
+
+  /** 絞り込み：記号・名前・本文・例・鍵のどれかに含まれる定義だけを出す（大文字と小文字は区別しない）。 */
+  function filter() {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    const visible = new Set<string>();
+    for (const c of cats) {
+      for (const e of c.entries) {
+        const text = [e.key, e.symbol, e.name, ...e.lines, ...e.examples, e.source].join(' ').toLowerCase();
+        if (!q || text.includes(q)) visible.add(e.key);
+      }
+    }
+    for (const el of body.querySelectorAll<HTMLElement>('.gl-entry')) {
+      const on = visible.has(el.dataset.key ?? '');
+      el.hidden = !on;
+      if (on) shown++;
+    }
+    for (const el of body.querySelectorAll<HTMLElement>('.gl-cat')) {
+      el.hidden = !el.querySelector('.gl-entry:not([hidden])');
+    }
+    for (const b of index.querySelectorAll<HTMLElement>('.gl-chip')) b.hidden = !visible.has(b.dataset.def ?? '');
+    for (const r of index.querySelectorAll<HTMLElement>('.gl-index-row')) r.hidden = !r.querySelector('.gl-chip:not([hidden])');
+    const total = cats.reduce((n, c) => n + c.entries.length, 0);
+    setStatus(status, q ? tr(`${total} 個中 ${shown} 個`, `${shown} of ${total}`) : '');
+  }
+
+  async function load() {
+    if (loadedLang === lang() && cats.length) return;
+    loading ??= (async () => {
+      setStatus(status, busyText());
+      try {
+        cats = await call<Category[]>((api) => {
+          if (!api.glossary) throw new TypeError('glossary is not a function');
+          return api.glossary();
+        });
+        loadedLang = lang();
+        setStatus(status, '');
+        render();
+      } catch (e) {
+        setStatus(status, e instanceof Error ? e.message : String(e), true);
+      } finally {
+        loading = null;
+      }
+    })();
+    await loading;
+  }
+
+  /** 定義に飛ぶ：絞り込みで隠れていれば解き、少しの間だけ枠を光らせる。 */
+  async function jump(key: string) {
+    await load();
+    let el = document.getElementById(`gl-${key}`);
+    if (!el) return;
+    if (el.hidden) {
+      search.value = '';
+      filter();
+      el = document.getElementById(`gl-${key}`);
+      if (!el) return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.remove('flash');
+    // 【メモ】offsetWidth を読むと描き直しが起き、同じクラスを付け直してもアニメーションがもう一度動く
+    void el.offsetWidth;
+    el.classList.add('flash');
+  }
+
+  search.addEventListener('input', filter);
+
+  // どのタブの「定義」のボタン（data-def）からでも、ここへ飛ぶ
+  document.addEventListener('click', (ev) => {
+    const t = (ev.target as Element | null)?.closest<HTMLElement>('[data-def]');
+    if (!t?.dataset.def) return;
+    ev.preventDefault();
+    showDefinition(t.dataset.def);
+  });
+
+  window.addEventListener(DEFS_EVENT, (ev) => {
+    const key = (ev as CustomEvent<string>).detail;
+    const go = () => window.setTimeout(() => jump(key), 0);
+    // 定義のタブがまだ隠れていれば、タブが切り替わって（hashchange）画面に出てから飛ぶ
+    if (document.querySelector('section[data-panel="defs"]')?.classList.contains('active')) go();
+    else window.addEventListener('hashchange', go, { once: true });
+  });
+
+  // タブを開いたときに読む（ページを開いた時点では読まない）
+  const maybeLoad = () => {
+    if (location.hash === '#defs') load();
+  };
+  window.addEventListener('hashchange', maybeLoad);
+  maybeLoad();
+
+  onLang(() => {
+    if (cats.length) {
+      cats = [];
+      load();
+    }
+  });
+</script>

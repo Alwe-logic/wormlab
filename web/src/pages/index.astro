@@ -5,6 +5,7 @@ import Ordinal from '../components/Ordinal.astro';
 import Proof from '../components/Proof.astro';
 import Model from '../components/Model.astro';
 import Rules from '../components/Rules.astro';
+import Glossary from '../components/Glossary.astro';
 
 // ロゴの worm の頭（ドット絵、左向き）。1 文字が 1 ドット：
 //   G 体、K 目、W 目の光、R 口、T 舌、. 透明
@@ -41,6 +42,7 @@ const tabs = [
   { id: 'proof', label: '証明', en: 'proofs' },
   { id: 'rules', label: '規則', en: 'rules' },
   { id: 'model', label: 'Kripke モデル', en: 'Kripke models' },
+  { id: 'defs', label: '定義', en: 'definitions' },
 ];
 ---
 
@@ -103,6 +105,7 @@ const tabs = [
     <Proof />
     <Rules />
     <Model />
+    <Glossary />
   </main>
   <footer>
     <div class="wrap">

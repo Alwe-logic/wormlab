@@ -517,6 +517,7 @@ select {
 }
 
 input[type="text"],
+input[type="search"],
 select,
 input[type="number"] {
   font: inherit;
@@ -529,7 +530,8 @@ input[type="number"] {
   caret-color: var(--neon);
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="search"] {
   font-family: var(--mono);
   min-width: 0;
   flex: 1 1 260px;
@@ -541,6 +543,7 @@ input[type="number"] {
 }
 
 input[type="text"]:focus,
+input[type="search"]:focus,
 input[type="number"]:focus,
 select:focus {
   border-color: var(--neon);
@@ -1333,6 +1336,179 @@ details.defs {
   font-size: 12px;
   color: var(--text-muted);
   overflow-wrap: anywhere;
+}
+
+/* 定義のタブ（Glossary.astro） */
+.gl-index {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.gl-index-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.gl-index-cat {
+  color: var(--accent);
+  font-size: 13px;
+  min-width: 10em;
+}
+
+.gl-chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.gl-lead {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+.gl-entry {
+  border-top: 1px dashed var(--border);
+  padding: 14px 0 12px;
+  min-width: 0;
+  scroll-margin-top: 16px;
+}
+
+.gl-entry.flash {
+  animation: gl-flash 1.6s ease-out;
+}
+
+@keyframes gl-flash {
+  from {
+    background: rgba(255, 230, 0, 0.18);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.gl-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.gl-sym {
+  font-family: var(--mono);
+  color: var(--neon);
+  text-shadow: var(--glow);
+}
+
+.gl-name {
+  color: var(--accent);
+}
+
+.gl-badge {
+  font-size: 11px;
+  color: var(--accent-ink);
+  background: var(--pellet);
+  padding: 0 6px;
+}
+
+.gl-lines {
+  margin: 0 0 8px;
+  padding-left: 1.3em;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.gl-lines li + li {
+  margin-top: 4px;
+}
+
+.gl-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+
+.gl-ex {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--neon-dim);
+  background: var(--surface-2);
+}
+
+.gl-ex ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.gl-related {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 8px 0;
+}
+
+.gl-src {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.gl-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: baseline;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.gl-tex {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.gl-tex > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.gl-try {
+  color: var(--text-secondary);
+}
+
+/* ほかのタブから定義へのリンク */
+.def-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.def-links button {
+  font-size: 12px;
+  padding: 1px 8px;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-entry.flash {
+    animation: none;
+    outline: 2px solid var(--accent);
+  }
 }
 
 /* 表示する標準形の選択（NotationPicker.astro）と、その書き方で書けない数の印 */

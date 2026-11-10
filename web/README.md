@@ -3,7 +3,7 @@
 wormlab の計算をブラウザで見るためのサイトです。Rust の `wormlab-core` を WebAssembly にして、
 [Astro](https://astro.build/) で作ったページから呼び出します。計算はすべてブラウザの中で行います。
 
-画面は 1 ページで、タブが 5 つあります。
+画面は 1 ページで、タブが 6 つあります。
 
 | タブ | 中身 |
 |---|---|
@@ -12,6 +12,7 @@ wormlab の計算をブラウザで見るためのサイトです。Rust の `wo
 | 証明 | RC・WC・BC・BWC で判定し、導出を証明図（⋮ で開く・結論を押して畳む、拡大・縮小・幅に合わせる）か入れ子の一覧で表示（成り立たなければ反例モデル）。規則の名前にカーソルを合わせると規則の形が出る。RC_BI は判定とモデル |
 | 規則 | 各体系（RC・WC・BC・BWC・RC_BIω）の公理と推論規則を、証明図と同じ形で一覧（出典・式の書き方・条件・補足つき） |
 | Kripke モデル | RC の閉包モデルと RC_BI の有限モデル M_A を図で表示（関係ごとに表示を切り替え） |
+| 定義 | wormlab で使う定義の一覧：ゲーム（battle と長さ）・順序数上の関数・表記と順序数の対応・体系の意味論。文字の式・LaTeX・出典・関連する定義・wormlab で計算した例つき。絞り込みと目次。ほかのタブの「定義：」のボタンから該当する定義に飛べる |
 
 どのタブでも結果を LaTeX で表示し、コードをコピーできます（「文書としてコピー」はプリアンブルつき）。
 証明は bussproofs の証明木と行番号つきの一覧、モデルは TikZ（図と同じ配置）。数式の表示には
@@ -60,10 +61,10 @@ GitHub Pages などでサブディレクトリに置くときは、`BASE_PATH=/w
 ## 構成
 
 - `src/pages/index.astro`：ページ本体（タブの切り替え）
-- `src/components/*.astro`：5 つの道具（見た目と、その画面の動きを書いた `<script>`）。順序数電卓の中の
+- `src/components/*.astro`：6 つのタブ（見た目と、その画面の動きを書いた `<script>`）。順序数電卓の中の
   `NotationPicker.astro`（表示する標準形の選択）・`Explore.astro`（基本列の探検）・`Arith.astro`（演算）・`Expr.astro`（式の標準形）は別の部品で、ほかのカードからは `dom.ts` の
   `exploreOrdinal` で探検に数を送る。選んだ標準形での書き換えは `src/lib/notation.ts`（Rust の `ordinal_render` をまとめて呼んで覚える。
-  見せる文字だけを書き換え、計算に渡すのはいつも Veblen 形の文字。切り替えると `wormlab:notation` イベント）。証明と規則のタブは `showRules`・`proveIn` で行き来する
+  見せる文字だけを書き換え、計算に渡すのはいつも Veblen 形の文字。切り替えると `wormlab:notation` イベント）。証明と規則のタブは `showRules`・`proveIn` で行き来する。どのタブの `data-def="鍵"` のボタンも、`Glossary.astro`（定義のタブ、Rust の `glossary`）の `showDefinition` でその定義に飛ぶ
 - `src/lib/wasm.ts`：WebAssembly の読み込みと呼び出し（Rust の関数は JSON の文字列を返す）
 - `src/lib/graph.ts`：Kripke モデルの図（点の配置は Rust 側の `modelview` が計算）、`src/lib/proof.ts`：証明の表示、
   `src/lib/prooftree.ts`：証明図（推論ごとに 2 列の grid、右の列が規則の名前）、`src/lib/rules.ts`：規則の一覧（Rust の `rules`）、

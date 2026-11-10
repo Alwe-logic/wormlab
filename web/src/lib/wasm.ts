@@ -42,6 +42,8 @@ export interface Api {
   ordinal_render?: (texts: string, notation: string) => string;
   /** 標準形の書き方の一覧（名前・説明・出典・例。古い wasm にはない） */
   ordinal_notations?: () => string;
+  /** 定義集：ゲーム・順序数上の関数・表記と順序数・意味論の定義（分類ごと。古い wasm にはない） */
+  glossary?: () => string;
   /** 隠し機能：ロゴの worm の battle の step ステップ目（古い wasm にはない） */
   logo_worm?: (step: number) => string;
 }

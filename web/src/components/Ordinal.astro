@@ -37,6 +37,18 @@ const EN = {
       <button class="primary" id="o-run" type="button" data-en="Compute">計算</button>
     </div>
     <div class="examples" id="o-examples"></div>
+    <div class="def-links">
+      <span data-en="Definitions:">定義：</span>
+      <button type="button" class="small" data-def="worm-o">o(A)</button>
+      <button type="button" class="small" data-def="worm-o-transfinite" data-en="o(A) (ordinal letters)">o(A)（文字が順序数）</button>
+      <button type="button" class="small" data-def="worm-inverse" data-en="normal-form worm">標準形の worm</button>
+      <button type="button" class="small" data-def="bracket">o*(a)</button>
+      <button type="button" class="small" data-def="iworm">p(w)</button>
+      <button type="button" class="small" data-def="fs">α[n]</button>
+      <button type="button" class="small" data-def="worm-fs">α&#123;n&#125;</button>
+      <button type="button" class="small" data-def="hardy">H_α</button>
+      <button type="button" class="small" data-def="normal" data-en="normal form">標準形</button>
+    </div>
     <div class="status" id="o-status" aria-live="polite"></div>
     <table class="kv" id="o-table" hidden></table>
     <div id="o-tex"></div>
@@ -59,6 +71,11 @@ const EN = {
       <input type="text" id="c-b" value="ω^2" aria-label="右" data-en-aria-label="Right" />
       <button class="primary" id="c-run" type="button" data-en="Compare">比較</button>
     </div>
+    <div class="def-links">
+      <span data-en="Definitions:">定義：</span>
+      <button type="button" class="small" data-def="worm" data-en="the worm order <₀">worm の順序 <₀</button>
+      <button type="button" class="small" data-def="normal" data-en="normal form">標準形</button>
+    </div>
     <div class="verdict" id="c-out"></div>
     <div id="c-tex"></div>
   </div>
@@ -76,6 +93,11 @@ const EN = {
       <input type="text" id="r-a" value="<1>_3<2>_3 T" aria-label="式 A" data-en-aria-label="Formula A" />
       <input type="text" id="r-b" value="<2>_2<2>_3 T" aria-label="式 B" data-en-aria-label="Formula B" />
       <button class="primary" id="r-cmp" type="button" data-en="Compare">比較</button>
+    </div>
+    <div class="def-links">
+      <span data-en="Definitions:">定義：</span>
+      <button type="button" class="small" data-def="rcbi-order" data-en="<¹₁ and ordinals"><¹₁ と順序数</button>
+      <button type="button" class="small" data-def="rcbi-fs" data-en="forms and (A)_n">形と近似 (A)_n</button>
     </div>
     <div class="verdict" id="r-out"></div>
     <div id="r-tex"></div>

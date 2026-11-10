@@ -108,6 +108,15 @@ export function showRules(id: string): void {
   location.hash = 'rules';
 }
 
+/** 定義のタブ（Glossary.astro）で、この定義を見せるよう頼むイベント。 */
+export const DEFS_EVENT = 'wormlab:definition';
+
+/** 定義のタブに移って、鍵 key の定義（worm-battle など）を見せる。 */
+export function showDefinition(key: string): void {
+  location.hash = 'defs';
+  window.dispatchEvent(new CustomEvent<string>(DEFS_EVENT, { detail: key }));
+}
+
 /** 証明のタブ（Proof.astro）で、この体系を選ぶよう頼むイベント。 */
 export const PROVE_EVENT = 'wormlab:prove';
 
