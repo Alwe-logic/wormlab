@@ -3,19 +3,22 @@
 ---
 
 <section class="panel" data-panel="model">
-  <p class="lead">
+  <p
+    class="lead"
+    data-en="Draws the models behind the decision procedures: for RC, the model obtained by closing the syntax tree of the formula; for RC_BI, the paper's M_A (the syntax tree plus zero points, intermediate points and copy points, then closed). If you enter a sequent A ⊢ B, the points where B is true get a thick ring."
+  >
     判定の中身であるモデルを描きます。RC では式の構文木を閉包したモデル、RC_BI では論文の M_A
     （構文木に零点・中間点・コピー点を足して閉包したもの）です。シーケント A ⊢ B を入れると、B が真になる点を
     太い輪で示します。
   </p>
   <div class="card">
     <div class="controls">
-      <select id="m-system" aria-label="体系">
-        <option value="rcbi">RC_BI の M_A</option>
-        <option value="rc">RC の閉包モデル</option>
+      <select id="m-system" aria-label="体系" data-en-aria-label="System">
+        <option value="rcbi" data-en="M_A of RC_BI">RC_BI の M_A</option>
+        <option value="rc" data-en="closure model of RC">RC の閉包モデル</option>
       </select>
-      <input type="text" id="m-input" value="D <1> T" aria-label="式かシーケント" />
-      <button class="primary" id="m-run" type="button">描く</button>
+      <input type="text" id="m-input" value="D <1> T" aria-label="式かシーケント" data-en-aria-label="Formula or sequent" />
+      <button class="primary" id="m-run" type="button" data-en="Draw">描く</button>
     </div>
     <div class="examples" id="m-examples"></div>
     <div class="status" id="m-status" aria-live="polite"></div>
@@ -29,35 +32,33 @@
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { byId, h, setStatus } from '../lib/dom';
+  import { busyText, byId, examples, h, setStatus } from '../lib/dom';
+  import { onLang, tr } from '../lib/i18n';
   import { renderModel, type ModelJson } from '../lib/graph';
 
   const EXAMPLES: Record<string, string[]> = {
     rcbi: ['D <1> T', '<2>_2 <2>_3 T', 'D T & <2>_2 T', '<2>_2 T |- <1> D T', 'D T |- <2>_2 T'],
     rc: ['<2>p & <1>q', '<1>(p & <0>q)', '<2>p |- <0><1>p', '<0>p |- <1>p'],
   };
-  const KINDS =
-    '点の色：黒 = 構文木の点、水色 = 零点、灰 = 中間点、橙 = コピー点。点に重ねると説明が出ます。';
+  const kinds = () =>
+    tr(
+      '点の色：黒 = 構文木の点、水色 = 零点、灰 = 中間点、橙 = コピー点。点に重ねると説明が出ます。',
+      'Point colours: black = syntax-tree point, light blue = zero point, grey = intermediate point, orange = copy point. Hover over a point for details.',
+    );
 
   const system = byId<HTMLSelectElement>('m-system');
   const input = byId<HTMLInputElement>('m-input');
   const status = byId('m-status');
+  /** 一度でも実行したか（言語を切り替えたら出し直す） */
+  let ran = false;
 
   function fillExamples() {
-    const box = byId('m-examples');
-    box.replaceChildren(h('span', {}, '例：'));
-    for (const x of EXAMPLES[system.value]) {
-      const b = h('button', { type: 'button' }, x);
-      b.addEventListener('click', () => {
-        input.value = x;
-        run();
-      });
-      box.append(b);
-    }
+    examples(byId('m-examples'), input, EXAMPLES[system.value], run);
   }
 
   async function run() {
-    setStatus(status, '計算中…');
+    ran = true;
+    setStatus(status, busyText());
     await nextFrame();
     try {
       const m = await call<ModelJson>((api) =>
@@ -69,23 +70,26 @@
         title.textContent = m.title ?? '';
       } else {
         title.replaceChildren(
-          h('span', { class: m.holds ? 'yes' : 'no' }, m.holds ? '成り立つ：' : '成り立たない：'),
+          h('span', { class: m.holds ? 'yes' : 'no' }, m.holds ? tr('成り立つ：', 'Holds: ') : tr('成り立たない：', 'Does not hold: ')),
           m.title ?? '',
         );
       }
-      const extra = [`${m.points.length} 点`];
+      const extra = [tr(`${m.points.length} 点`, `${m.points.length} points`)];
       if (system.value === 'rcbi') {
-        extra.push(KINDS);
+        extra.push(kinds());
         if (m.frame_violations) {
           extra.push(
             m.frame_violations.length === 0
-              ? 'フレーム条件 I〜IV をすべて満たす（RC_BIω モデル）'
-              : `フレーム条件の違反 ${m.frame_violations.length} 件（バグです）`,
+              ? tr('フレーム条件 I〜IV をすべて満たす（RC_BIω モデル）', 'Satisfies all frame conditions I–IV (an RC_BIω model)')
+              : tr(
+                  `フレーム条件の違反 ${m.frame_violations.length} 件（バグです）`,
+                  `${m.frame_violations.length} frame-condition violations (this is a bug)`,
+                ),
           );
         }
       }
-      byId('m-extra').textContent = extra.join('　');
-      renderModel(byId('m-graph'), m, '右辺が真');
+      byId('m-extra').textContent = extra.join(tr('　', ' · '));
+      renderModel(byId('m-graph'), m, tr('右辺が真', 'right-hand side true'));
       byId('m-result').hidden = false;
     } catch (e) {
       setStatus(status, e instanceof Error ? e.message : String(e), true);
@@ -101,4 +105,10 @@
     if (e.key === 'Enter') run();
   });
   fillExamples();
+
+  // 言語の切り替え：例を並べ直し、結果を出していたら出し直す
+  onLang(() => {
+    fillExamples();
+    if (ran) run();
+  });
 </script>

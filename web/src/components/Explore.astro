@@ -1,0 +1,343 @@
+---
+// 基本列をたどる：順序数 α から α[n]（標準の基本列）や α{n}（worm が作る列）を選んで下へ降りていく。
+// たどった道はパンくずで戻れる。標準 battle（α, α[k], α[k][k+1], …）の道すじと長さも出す。
+// 順序数電卓のタブ（Ordinal.astro）の中に置く。ほかのカードからは、dom.ts の exploreOrdinal で数を送る。
+// 数は、タブの上で選んだ標準形で見せる（lib/notation.ts）。押して降りる先・パンくずの戻り先は Veblen 形の文字で持つ。
+---
+
+<div class="card" id="x-card">
+  <h2 data-en="Exploring fundamental sequences">基本列をたどる</h2>
+  <p
+    class="muted"
+    style="margin:0 0 8px;font-size:13px"
+    data-en="Start from an ordinal α and go down by clicking a term of its fundamental sequence: α[n] (the standard one) or α{n} (one battle step of α's normal-form worm). The trail at the top takes you back. Every path down reaches 0 in finitely many steps."
+  >
+    順序数 α から始めて、基本列の項を押して下へ降りていきます。α[n] は標準の基本列、α&#123;n&#125; は α の正規形の worm を battle で 1
+    ステップ進めた数です。上のパンくずで戻れます。どう降りても、有限回で 0 に着きます。
+  </p>
+  <div class="controls">
+    <input type="text" id="x-input" value="ε_0" aria-label="出発点の順序数" data-en-aria-label="Starting ordinal" />
+    <button class="primary" id="x-run" type="button" data-en="Start here">ここから</button>
+  </div>
+  <div class="examples" id="x-examples"></div>
+  <div class="status" id="x-status" aria-live="polite"></div>
+  <div id="x-out"></div>
+</div>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { busyText, byId, EXPLORE_EVENT, examples, h, setStatus } from '../lib/dom';
+  import { onLang, tr } from '../lib/i18n';
+  import { texBlock } from '../lib/latex';
+  // 【メモ】`show as inNotation`：このファイルにも show という関数があるので、別の名前で読み込む
+  import { fallbackLine, onNotation, prepare, rendered, show as inNotation } from '../lib/notation';
+
+  interface Term {
+    n: number;
+    value: string;
+  }
+  interface ExploreJson {
+    ordinal: string;
+    latex: string;
+    kind: 'zero' | 'successor' | 'limit';
+    pred: string | null;
+    /** Γ0 未満（基本列が定義されている）か */
+    defined: boolean;
+    fundamental: Term[];
+    worm_fundamental: Term[];
+    max_n: number;
+    max_worm_n: number;
+    start: number;
+    descent: { path: string[]; defined: boolean; length?: string; exact?: boolean };
+  }
+
+  /** 前の数からどう降りたか */
+  type Via =
+    | { kind: 'fs'; n: number }
+    | { kind: 'worm'; n: number }
+    | { kind: 'pred' }
+    | { kind: 'battle'; k: number; steps: number };
+  /** たどった道の 1 つの数 */
+  interface Stop {
+    text: string;
+    tex: string;
+    via: Via | null;
+  }
+
+  const EXAMPLES = ['ε_0', 'ω^ω', 'ω·2 + 1', 'φ(2, 0)', 'φ(ω, 0)', 'ψ(0)'];
+  /** 基本列を一度に並べる個数 */
+  const COUNT = 8;
+
+  const input = byId<HTMLInputElement>('x-input');
+  const status = byId('x-status');
+  const box = byId('x-out');
+  let trail: Stop[] = [];
+  let from = 0;
+  let start = 1;
+
+  function begin(text: string) {
+    trail = [{ text, tex: '', via: null }];
+    from = 0;
+    show();
+  }
+
+  function go(text: string, via: Via) {
+    trail.push({ text, tex: '', via });
+    from = 0;
+    show();
+  }
+
+  /** 降り方の印：[n]・{n}・−1・[k]…[k+i−1] */
+  function viaLabel(v: Via): string {
+    switch (v.kind) {
+      case 'fs':
+        return `[${v.n}]`;
+      case 'worm':
+        return `{${v.n}}`;
+      case 'pred':
+        return '−1';
+      case 'battle':
+        return v.steps === 1 ? `[${v.k}]` : `[${v.k}]…[${v.k + v.steps - 1}]`;
+    }
+  }
+
+  function viaTex(v: Via): string {
+    switch (v.kind) {
+      case 'fs':
+        return `[${v.n}]`;
+      case 'worm':
+        return `\\{${v.n}\\}`;
+      case 'pred':
+        return ' - 1';
+      case 'battle': {
+        const ks = Array.from({ length: v.steps }, (_, i) => v.k + i);
+        return ks.length <= 4 ? ks.map((k) => `[${k}]`).join('') : `[${ks[0]}][${ks[1]}]\\cdots[${ks[ks.length - 1]}]`;
+      }
+    }
+  }
+
+  const short = (s: string) => (s.length > 32 ? `${s.slice(0, 31)}…` : s);
+
+  /** 並べるときに見せる文字数の上限（長い数は先頭だけ。全体はツールチップで） */
+  const MAX_SHOWN = 160;
+
+  /** 押せる数（その数へ降りる）。見せるのは今の標準形、降りる先は Veblen 形の value */
+  function pick(value: string, via: Via) {
+    const r = rendered(value);
+    const text = r.text;
+    const long = text.length > MAX_SHOWN;
+    const tip = [long ? text : null, r.note].filter((x) => x).join('\n') || undefined;
+    const b = h(
+      'button',
+      { type: 'button', class: `pick${r.note ? ' nf-fallback' : ''}`, title: tip },
+      long ? `${text.slice(0, MAX_SHOWN)}…` : text,
+    );
+    if (long) b.append(h('span', { class: 'muted' }, tr(`（全 ${text.length} 文字）`, ` (${text.length} characters)`)));
+    b.addEventListener('click', () => go(value, via));
+    return b;
+  }
+
+  function row(label: string, ...value: (Node | string)[]) {
+    return h('tr', {}, h('th', {}, label), h('td', {}, ...value));
+  }
+
+  /** 項の並び（番号は n から） */
+  function terms(list: Term[], via: (n: number) => Via) {
+    return h('ol', { class: 'seq picks', start: list[0]?.n ?? 0 }, ...list.map((t) => h('li', {}, pick(t.value, via(t.n)))));
+  }
+
+  function crumbs(): HTMLElement {
+    const nav = h('nav', { class: 'crumbs', 'aria-label': tr('たどった道', 'Trail') });
+    trail.forEach((node, i) => {
+      if (node.via) nav.append(h('span', { class: 'sep' }, `› ${viaLabel(node.via)} ›`));
+      const b = h('button', { type: 'button', title: inNotation(node.text) }, short(inNotation(node.text)));
+      if (i === trail.length - 1) b.setAttribute('aria-current', 'true');
+      b.addEventListener('click', () => {
+        trail = trail.slice(0, i + 1);
+        from = 0;
+        show();
+      });
+      nav.append(b);
+    });
+    return nav;
+  }
+
+  /** n の範囲を動かす操作 */
+  function rangeControls(r: ExploreJson): HTMLElement {
+    const prev = h('button', { type: 'button', class: 'small' }, '‹');
+    prev.disabled = from === 0;
+    prev.addEventListener('click', () => {
+      from = Math.max(0, from - COUNT);
+      show();
+    });
+    const next = h('button', { type: 'button', class: 'small' }, '›');
+    next.disabled = from + COUNT > r.max_n;
+    next.addEventListener('click', () => {
+      from = Math.min(r.max_n, from + COUNT);
+      show();
+    });
+    const n = h('input', { type: 'number', min: 0, max: r.max_n, value: from, 'aria-label': 'n' }) as HTMLInputElement;
+    const jump = h('button', { type: 'button', class: 'small' }, tr('から表示', 'show from here'));
+    const apply = () => {
+      from = Math.min(r.max_n, Math.max(0, Math.floor(Number(n.value) || 0)));
+      show();
+    };
+    jump.addEventListener('click', apply);
+    n.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') apply();
+    });
+    return h(
+      'div',
+      { class: 'controls' },
+      prev,
+      h('span', { class: 'mono' }, `n = ${from} … ${Math.min(r.max_n, from + COUNT - 1)}`),
+      next,
+      h('span', { class: 'muted', style: 'margin-left:8px' }, 'n ='),
+      n,
+      jump,
+    );
+  }
+
+  /** 標準 battle の道すじ */
+  function descentBlock(r: ExploreJson): HTMLElement[] {
+    const d = r.descent;
+    const k = h('input', { type: 'number', min: 1, max: 20, value: start, 'aria-label': tr('k の始まり', 'first k') }) as HTMLInputElement;
+    k.addEventListener('change', () => {
+      start = Math.min(20, Math.max(1, Math.floor(Number(k.value) || 1)));
+      show();
+    });
+    const head = h(
+      'div',
+      { class: 'controls' },
+      h('span', { class: 'muted' }, tr('α ← α[k]、k は', 'α ← α[k], with k from')),
+      k,
+      h('span', { class: 'muted' }, tr('から 1 ずつ増やす', 'upward')),
+    );
+    if (!d.defined) {
+      return [h('div', { class: 'muted' }, tr('Ω・ψ を含む数の基本列はまだ定義していないので、battle もありません。', 'Fundamental sequences of numbers with Ω or ψ are not defined yet, so there is no battle either.'))];
+    }
+    const len = d.exact
+      ? tr(`${d.length} ステップで 0 に着く`, `reaches 0 in ${d.length} steps`)
+      : tr(`${d.length} ステップより多くかかる（ここで数えるのをやめました）`, `takes more than ${d.length} steps (counting stopped here)`);
+    const path = h(
+      'ol',
+      { class: 'seq picks', start: 0 },
+      ...d.path.map((x, i) =>
+        h('li', {}, i === 0 || x === '…' ? h('span', { class: 'mono' }, inNotation(x)) : pick(x, { kind: 'battle', k: start, steps: i })),
+      ),
+    );
+    const list = h(
+      'details',
+      { open: true },
+      h('summary', {}, tr(`道すじ（最初の ${d.path.length} 個、押すとその数へ）`, `The path (first ${d.path.length}; click to go there)`)),
+      path,
+    );
+    return [head, h('div', { class: 'verdict', style: 'font-size:14px' }, len), list];
+  }
+
+  /** たどった道の LaTeX：α_0 = …、α_1 = α_0[3] = …、… */
+  function trailTex(): string {
+    const lines = trail.map((node, i) => {
+      const how = node.via ? `\\alpha_{${i - 1}}${viaTex(node.via)} = ` : '';
+      return `\\alpha_{${i}} &= ${how}${node.tex}`;
+    });
+    return `\\begin{align*}\n${lines.join(' \\\\\n')}\n\\end{align*}`;
+  }
+
+  async function show() {
+    const node = trail[trail.length - 1];
+    if (!node) return;
+    setStatus(status, busyText());
+    await nextFrame();
+    try {
+      const r = await call<ExploreJson>((api) => api.ordinal_explore(node.text, from, COUNT, start));
+      setStatus(status, '');
+      node.text = r.ordinal;
+      node.tex = r.latex;
+      // 見せる数をまとめて今の標準形に（1 回の呼び出しで）
+      const all = [
+        ...trail.map((t) => t.text),
+        ...(r.pred !== null ? [r.pred] : []),
+        ...r.fundamental.map((t) => t.value),
+        ...r.worm_fundamental.map((t) => t.value),
+        ...r.descent.path.filter((x) => x !== '…'),
+      ];
+      prepare(all);
+      const kind =
+        r.kind === 'zero' ? '0' : r.kind === 'successor' ? tr('後続順序数', 'successor ordinal') : tr('極限順序数', 'limit ordinal');
+      // 今いる数は長いこともあるので、高さを決めてスクロールさせる
+      const now = rendered(r.ordinal);
+      const rows = [
+        row(
+          tr('今いる数', 'Current ordinal'),
+          h('div', { class: `step-text${now.note ? ' nf-fallback' : ''}`, title: now.note ?? undefined }, now.text),
+          h('span', { class: 'muted' }, `(${kind})`),
+        ),
+      ];
+      if (r.kind === 'zero') {
+        rows.push(row('', tr('0 に着きました。上のパンくずで戻れます。', 'Reached 0. Use the trail above to go back.')));
+      } else if (r.kind === 'successor' && r.pred !== null) {
+        rows.push(row(tr('直前の数', 'Predecessor'), pick(r.pred, { kind: 'pred' }), h('span', { class: 'muted' }, tr('（後続順序数の基本列は直前の数だけ）', ' (a successor’s fundamental sequence is just its predecessor)'))));
+      } else if (!r.defined) {
+        rows.push(
+          row(
+            tr('基本列', 'Fundamental sequence'),
+            tr('Ω・ψ を含む数の基本列はまだ定義していません（たどれるのは Γ₀ 未満の数だけ）。', 'Fundamental sequences of numbers with Ω or ψ are not defined yet (only numbers below Γ₀ can be explored).'),
+          ),
+        );
+      } else {
+        rows.push(row('n', rangeControls(r)));
+        rows.push(row(tr('標準の基本列 α[n]', 'Standard sequence α[n]'), terms(r.fundamental, (n) => ({ kind: 'fs', n }))));
+        const worm =
+          r.worm_fundamental.length > 0
+            ? terms(r.worm_fundamental, (n) => ({ kind: 'worm', n }))
+            : h('span', { class: 'muted' }, tr(`n ≤ ${r.max_worm_n} だけ出します（括弧語の計算が重くなるため）。`, `shown only for n ≤ ${r.max_worm_n} (the bracket-word computation gets slow).`));
+        rows.push(row(tr('worm が作る列 α{n}', 'Worm sequence α{n}'), worm));
+      }
+      rows.push(row(tr('標準 battle', 'Standard battle'), ...descentBlock(r)));
+      box.replaceChildren(
+        crumbs(),
+        h('table', { class: 'kv' }, ...rows),
+        ...[fallbackLine(all)].filter((x): x is HTMLElement => x !== null),
+        texBlock({
+          title: tr('LaTeX（たどった道）', 'LaTeX (the trail)'),
+          code: trailTex(),
+          note: tr('\\begin{align*} は amsmath。α{n} は \\{n\\} と書いています。', '\\begin{align*} needs amsmath. α{n} is written \\{n\\}.'),
+        }).el,
+      );
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+      // 読めない入力なら、今の道は捨てる（前の道にいた場合は 1 つ戻す）
+      if (trail.length > 1) trail.pop();
+      else {
+        trail = [];
+        box.replaceChildren();
+      }
+    }
+  }
+
+  const runInput = () => begin(input.value);
+  byId('x-run').addEventListener('click', runInput);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runInput();
+  });
+  examples(byId('x-examples'), input, EXAMPLES, runInput);
+
+  // ほかのカード（変換・演算）から「この数をたどる」
+  window.addEventListener(EXPLORE_EVENT, (e) => {
+    const text = (e as CustomEvent<string>).detail;
+    input.value = text;
+    begin(text);
+    byId('x-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // 言語の切り替え：例を並べ直し、今の数を出し直す
+  onLang(() => {
+    examples(byId('x-examples'), input, EXAMPLES, runInput);
+    if (trail.length > 0) show();
+  });
+  // 標準形の切り替え：今の数を出し直す
+  onNotation(() => {
+    if (trail.length > 0) show();
+  });
+</script>

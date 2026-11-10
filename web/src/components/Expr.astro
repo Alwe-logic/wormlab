@@ -1,0 +1,228 @@
+---
+// 式の標準形：+・·・^・Veblen 関数 φ・ε・超指数関数 e^α・崩壊関数 ψ でできた式を、内側から 1 段ずつ
+// 標準形にする。各段に使った定義・規則を添え、使う定義の一覧（出典つき）も出す。
+// 計算は Rust の expr モジュール（wasm の ordinal_expr・ordinal_definitions）。順序数電卓のタブの中に置く。
+// 結果と各段の値は、タブの上で選んだ標準形で見せる（lib/notation.ts。LaTeX は Veblen 形のまま）。
+
+const EN = {
+  lead: "Write an expression with + · ^, the Veblen function <span class='mono'>φ(α, β)</span>, <span class='mono'>ε_α</span>, the hyperexponential <span class='mono'>e^α(β)</span> and the collapsing function <span class='mono'>ψ(α)</span>; it is brought to normal form from the inside out, one step at a time, with the definition used at each step. Which definitions are used (and where they come from) is listed below.",
+  syntax: "Syntax: <span class='mono'>φ(α, β)</span> or <span class='mono'>phi(α, β)</span>, <span class='mono'>ε_α</span> (<span class='mono'>e_α</span>), <span class='mono'>e^α(β)</span> (<span class='mono'>e(β)</span> is e^1), <span class='mono'>ψ(α)</span> (<span class='mono'>psi</span>), <span class='mono'>ω</span> (<span class='mono'>w</span>), <span class='mono'>Ω</span> (<span class='mono'>O</span>), <span class='mono'>+ · ^</span> (<span class='mono'>*</span> for ·; ^ is right-associative), parentheses <span class='mono'>( )</span> or <span class='mono'>{ }</span>.",
+};
+---
+
+<div class="card">
+  <h2 data-en="Normal form of an expression">式の標準形</h2>
+  <p class="muted" style="margin:0 0 8px;font-size:13px" data-en-html={EN.lead}>
+    +・·・^ と Veblen 関数 <span class="mono">φ(α, β)</span>、<span class="mono">ε_α</span>、超指数関数
+    <span class="mono">e^α(β)</span>、崩壊関数 <span class="mono">ψ(α)</span> を組み合わせた式を、内側から 1 段ずつ標準形にします。
+    各段に、使った定義・規則を添えます。どの定義を使うか（と出典）は下の一覧にあります。
+  </p>
+  <div class="controls">
+    <input type="text" id="nf-input" value="e^(ω + 1)(1) + φ(1, φ(2, 0))" aria-label="式" data-en-aria-label="Expression" />
+    <button class="primary" id="nf-run" type="button" data-en="Normalize">標準形にする</button>
+  </div>
+  <div class="examples" id="nf-examples"></div>
+  <p class="muted" style="margin:6px 0 0;font-size:12px" data-en-html={EN.syntax}>
+    書き方：<span class="mono">φ(α, β)</span>・<span class="mono">phi(α, β)</span>、<span class="mono">ε_α</span>（<span class="mono">e_α</span>）、
+    <span class="mono">e^α(β)</span>（<span class="mono">e(β)</span> は e^1）、<span class="mono">ψ(α)</span>（<span class="mono">psi</span>）、
+    <span class="mono">ω</span>（<span class="mono">w</span>）、<span class="mono">Ω</span>（<span class="mono">O</span>）、<span class="mono">+ · ^</span>（· は
+    <span class="mono">*</span> でも。^ は右から結合）、かっこは <span class="mono">( )</span> か <span class="mono">{ }</span>。
+  </p>
+  <div class="status" id="nf-status" aria-live="polite"></div>
+  <div id="nf-out"></div>
+  <details class="defs" id="nf-defs-box">
+    <summary data-en="Definitions used (with sources)">使う定義（出典つき）</summary>
+    <div id="nf-defs"></div>
+  </details>
+</div>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { busyText, byId, exploreOrdinal, h, setStatus } from '../lib/dom';
+  import { recordOrdinal } from '../lib/hiscore';
+  import { onLang, tr } from '../lib/i18n';
+  import { texBlock } from '../lib/latex';
+  import { fallbackLine, onNotation, prepare, show } from '../lib/notation';
+
+  interface ExprStep {
+    node: string;
+    value: string;
+    rule: string;
+    details: string[];
+    whole: string;
+    /** 部分式が書き方まで標準形のまま */
+    same: boolean;
+  }
+
+  interface ExprJson {
+    input: string;
+    value: string;
+    value_chars: number;
+    countable: boolean;
+    predicative: boolean;
+    size: number;
+    steps: ExprStep[];
+    steps_total: number;
+    latex: string | null;
+  }
+
+  interface Definition {
+    key: string;
+    symbol: string;
+    name: string;
+    lines: string[];
+    source: string;
+  }
+
+  /** 例（どの定義の働きが見えるか） */
+  const EXAMPLES = [
+    'φ(1, φ(2, 0))',
+    'ω^ε_0 + 1',
+    'e^ω(1)',
+    'e^(ω^2 + 2)(ω)',
+    'e^Ω(2)',
+    'ψ(0) + φ(ψ(0), 1)',
+    'ψ(Ω + ψ(Ω·2 + 1))',
+    'ψ(Ω^Ω)',
+    '(ω + 1)^ω + φ(Ω, 0)',
+  ];
+
+  const input = byId<HTMLInputElement>('nf-input');
+  const status = byId('nf-status');
+  const box = byId('nf-out');
+  let ran = false;
+  /** そのままの段（ω + 1 = ω + 1 など）も見せるか */
+  let showSame = false;
+
+  function fillExamples() {
+    const ex = byId('nf-examples');
+    ex.replaceChildren(h('span', {}, tr('例：', 'e.g.')));
+    for (const e of EXAMPLES) {
+      const b = h('button', { type: 'button' }, e);
+      b.addEventListener('click', () => {
+        input.value = e;
+        run();
+      });
+      ex.append(b);
+    }
+  }
+
+  function stepItem(s: ExprStep): HTMLElement {
+    const li = h(
+      'li',
+      { class: s.same ? 'same' : '' },
+      h('div', { class: 'eq' }, `${s.node} = ${show(s.value)}`),
+      h('div', { class: 'why' }, s.rule),
+    );
+    if (s.details.length) {
+      li.append(h('ul', { class: 'calc-details' }, ...s.details.map((d) => h('li', {}, d))));
+    }
+    return li;
+  }
+
+  async function run() {
+    ran = true;
+    setStatus(status, busyText());
+    await nextFrame();
+    try {
+      const r = await call<ExprJson>((api) => {
+        if (!api.ordinal_expr) throw new TypeError('ordinal_expr is not a function');
+        return api.ordinal_expr(input.value);
+      });
+      setStatus(status, '');
+      recordOrdinal(r.value, 'expr');
+      const facts = [
+        r.countable ? tr('可算', 'countable') : tr('非可算（Ω 以上）', 'uncountable (Ω or more)'),
+        r.predicative ? tr('Γ₀ 未満', 'below Γ₀') : null,
+        tr(`主項 ${r.size} 個`, `${r.size} principal terms`),
+      ].filter((x): x is string => x !== null);
+      const same = r.steps.filter((s) => s.same).length;
+      prepare([r.value, ...r.steps.map((s) => s.value)]);
+      const list = h('ol', { class: `calc-steps expr-steps${showSame ? '' : ' hide-same'}` }, ...r.steps.map(stepItem));
+      const toggle = h('label', { class: 'muted', style: 'font-size:12px;display:inline-flex;gap:6px;align-items:center' });
+      const cb = h('input', { type: 'checkbox' });
+      cb.checked = showSame;
+      cb.addEventListener('change', () => {
+        showSame = cb.checked;
+        list.classList.toggle('hide-same', !showSame);
+      });
+      toggle.append(cb, tr(`書き方の変わらない段も見る（${same} 段）`, `Also show steps that change nothing (${same})`));
+      const explore = h('button', { type: 'button', class: 'small' }, tr('この数の基本列をたどる', 'Explore its fundamental sequences'));
+      explore.addEventListener('click', () => exploreOrdinal(r.value));
+      const parts: (HTMLElement | null)[] = [
+        h('div', { class: 'verdict mono' }, `${r.input} = ${show(r.value)}`),
+        fallbackLine([r.value, ...r.steps.map((s) => s.value)]),
+        h('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, facts.join(tr('　', ' · '))),
+        h('div', { class: 'controls', style: 'margin-top:6px' }, r.predicative ? explore : null, same ? toggle : null),
+        h(
+          'div',
+          { class: 'muted', style: 'font-size:13px;margin-top:10px' },
+          tr(`計算の過程（内側から ${r.steps_total} 段）：`, `How it is computed (${r.steps_total} steps, inside out):`),
+        ),
+        list,
+        r.steps_total > r.steps.length
+          ? h('p', { class: 'muted', style: 'font-size:12px' }, tr(`（最初の ${r.steps.length} 段だけ表示）`, `(only the first ${r.steps.length} steps are shown)`))
+          : null,
+        r.latex
+          ? texBlock({
+              title: tr('LaTeX（式全体の書き換え）', 'LaTeX (rewriting the whole expression)'),
+              code: r.latex,
+              note: tr('\\begin{align*} は amsmath。式が変わった段だけを並べています。', '\\begin{align*} needs amsmath. Only the steps that change the expression are listed.'),
+            }).el
+          : null,
+      ];
+      box.replaceChildren(...parts.filter((x): x is HTMLElement => x !== null));
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+      box.replaceChildren();
+    }
+  }
+
+  /** 定義の一覧（開いたときに読む。言語を切り替えたら読み直す） */
+  let defsLang = '';
+  async function loadDefs() {
+    const holder = byId('nf-defs');
+    const lang = document.documentElement.lang;
+    if (defsLang === lang) return;
+    try {
+      const defs = await call<Definition[]>((api) => {
+        if (!api.ordinal_definitions) throw new TypeError('ordinal_definitions is not a function');
+        return api.ordinal_definitions();
+      });
+      defsLang = lang;
+      holder.replaceChildren(
+        ...defs.map((d) =>
+          h(
+            'div',
+            { class: 'def-item' },
+            h('div', { class: 'def-head' }, h('span', { class: 'mono def-sym' }, d.symbol), d.name),
+            h('ul', {}, ...d.lines.map((l) => h('li', {}, l))),
+            h('div', { class: 'def-src' }, tr('出典：', 'Source: '), d.source),
+          ),
+        ),
+      );
+    } catch (e) {
+      holder.replaceChildren(h('p', { class: 'status error' }, e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  const defsBox = byId<HTMLDetailsElement>('nf-defs-box');
+  defsBox.addEventListener('toggle', () => {
+    if (defsBox.open) loadDefs();
+  });
+  byId('nf-run').addEventListener('click', run);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') run();
+  });
+  fillExamples();
+
+  onLang(() => {
+    fillExamples();
+    if (ran) run();
+    if (defsBox.open) loadDefs();
+  });
+  // 標準形の切り替え：結果を出していたら出し直す
+  onNotation(() => {
+    if (ran) run();
+  });
+</script>

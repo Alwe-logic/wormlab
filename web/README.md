@@ -3,18 +3,25 @@
 wormlab の計算をブラウザで見るためのサイトです。Rust の `wormlab-core` を WebAssembly にして、
 [Astro](https://astro.build/) で作ったページから呼び出します。計算はすべてブラウザの中で行います。
 
-画面は 1 ページで、タブが 4 つあります。
+画面は 1 ページで、タブが 5 つあります。
 
 | タブ | 中身 |
 |---|---|
-| battle | worm・括弧語・RC_BI の式の battle を 1 ステップずつ再生（worm は棒グラフ、長さの推移の折れ線つき） |
-| 順序数電卓 | 順序数・worm・括弧語の相互変換、標準形、基本列、Hardy 関数、大小の比較。RC_BI の式の比較と基本列 |
-| 証明 | RC・WC・BC で判定し、導出を開閉できる木で表示（成り立たなければ反例モデル）。RC_BI は判定とモデル |
+| battle | worm・括弧語・RC_BI の式の battle を 1 ステップずつ再生（worm は棒グラフ、括弧語は入れ子のブロック、長さの推移の折れ線つき）。長くなったステップは、同じ部分が続く所を (ab)^k でまとめて表示（worm・括弧語の図は、繰り返しの中身を 1 回分だけ描いて波括弧と ×k）。worm の battle はまとめたまま進めるので、長さの上限なく 2000 ステップまで |
+| 順序数電卓 | 表示する標準形の選択（Veblen 形・φ だけ・超指数関数と ψ・worm・括弧語・impredicative worm。タブの中の数をその書き方で出す）。順序数・worm・括弧語の相互変換、標準形、基本列、Hardy 関数。基本列をたどる探検（α[n]・α{n} を押して降りる、標準 battle の道すじ）、演算 α+β・α·β・α^β（計算の過程つき）、式の標準形（+・·・^・Veblen 関数 φ・ε・超指数関数 e^α・崩壊関数 ψ を組み合わせた式を、使った定義つきで内側から 1 段ずつ。定義の一覧と出典つき）、大小の比較。RC_BI の式の比較と基本列 |
+| 証明 | RC・WC・BC・BWC で判定し、導出を証明図（⋮ で開く・結論を押して畳む、拡大・縮小・幅に合わせる）か入れ子の一覧で表示（成り立たなければ反例モデル）。規則の名前にカーソルを合わせると規則の形が出る。RC_BI は判定とモデル |
+| 規則 | 各体系（RC・WC・BC・BWC・RC_BIω）の公理と推論規則を、証明図と同じ形で一覧（出典・式の書き方・条件・補足つき） |
 | Kripke モデル | RC の閉包モデルと RC_BI の有限モデル M_A を図で表示（関係ごとに表示を切り替え） |
 
 どのタブでも結果を LaTeX で表示し、コードをコピーできます（「文書としてコピー」はプリアンブルつき）。
 証明は bussproofs の証明木と行番号つきの一覧、モデルは TikZ（図と同じ配置）。数式の表示には
-[MathJax](https://www.mathjax.org/) 3.2.2（SVG 出力、bussproofs 入り）を、必要になったときに jsDelivr から読み込みます。
+[MathJax](https://www.mathjax.org/) 3.2.2（SVG 出力）を、必要になったときに jsDelivr から読み込みます。
+画面の証明図は MathJax ではなく `src/lib/prooftree.ts` が HTML で描きます（MathJax の bussproofs は、大きな木で
+規則の名前を隣の部分に重ねてしまうため。bussproofs のコードはコピー用に出します）。
+
+画面は日本語と英語の両方で使えます。最初はブラウザの言語（日本語なら日本語、それ以外は英語）で表示し、
+右上の JA / EN で切り替えられます（選んだ言語はブラウザに保存し、次に開いたときも使います）。
+Rust 側のエラーや説明の文も、wasm の `set_lang` で同じ言語になります。
 
 見た目は昔のアーケードゲーム風（黒地・ネオングリーン・worm のロゴ）。ドットのフォント（Press Start 2P・DotGothic16）は
 Google Fonts から読み込みます（読めないときは普通のフォントで表示）。色はすべて `src/styles/global.css` の変数で決めています。
@@ -53,9 +60,17 @@ GitHub Pages などでサブディレクトリに置くときは、`BASE_PATH=/w
 ## 構成
 
 - `src/pages/index.astro`：ページ本体（タブの切り替え）
-- `src/components/*.astro`：4 つの道具（見た目と、その画面の動きを書いた `<script>`）
+- `src/components/*.astro`：5 つの道具（見た目と、その画面の動きを書いた `<script>`）。順序数電卓の中の
+  `NotationPicker.astro`（表示する標準形の選択）・`Explore.astro`（基本列の探検）・`Arith.astro`（演算）・`Expr.astro`（式の標準形）は別の部品で、ほかのカードからは `dom.ts` の
+  `exploreOrdinal` で探検に数を送る。選んだ標準形での書き換えは `src/lib/notation.ts`（Rust の `ordinal_render` をまとめて呼んで覚える。
+  見せる文字だけを書き換え、計算に渡すのはいつも Veblen 形の文字。切り替えると `wormlab:notation` イベント）。証明と規則のタブは `showRules`・`proveIn` で行き来する
 - `src/lib/wasm.ts`：WebAssembly の読み込みと呼び出し（Rust の関数は JSON の文字列を返す）
-- `src/lib/graph.ts`：Kripke モデルの図（点の配置は Rust 側の `modelview` が計算）、`src/lib/proof.ts`：証明の木、
+- `src/lib/graph.ts`：Kripke モデルの図（点の配置は Rust 側の `modelview` が計算）、`src/lib/proof.ts`：証明の表示、
+  `src/lib/prooftree.ts`：証明図（推論ごとに 2 列の grid、右の列が規則の名前）、`src/lib/rules.ts`：規則の一覧（Rust の `rules`）、
+  `src/lib/logo.ts`・`src/lib/hiscore.ts`・`src/lib/devconsole.ts`：隠し機能（中身は画面で探してください）、
   `src/lib/charts.ts`：battle の図、`src/lib/latex.ts`：LaTeX の表示（MathJax）とコピー
-- `src/styles/global.css`：色（ライト・ダーク）と見た目
+- `src/lib/i18n.ts`：言語（日本語・英語）。動的な文は `tr('日本語', 'English')`、.astro の静的な文は
+  日本語をそのまま書いて英語を `data-en`（中に要素があれば `data-en-html`、属性は `data-en-aria-label` など）に書く。
+  切り替えると `wormlab:lang` イベントが飛び、各タブは表示中の結果をその言語で出し直す
+- `src/styles/global.css`：色（黒地だけ。変数で決める）と見た目
 - Rust 側の入り口は `crates/wormlab-wasm/src/lib.rs`

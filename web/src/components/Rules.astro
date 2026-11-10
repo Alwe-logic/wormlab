@@ -1,0 +1,118 @@
+---
+// 規則の一覧：各体系（RC・WC・BC・BWC・RC_BI）の公理と推論規則を、証明図と同じ形で並べる。
+// 中身は Rust（wormlab-core/src/rules.rs）が作るので、証明の検査器の規則の名前と一致する。
+---
+
+<section class="panel" data-panel="rules">
+  <p
+    class="lead"
+    data-en="The axioms and rules of each system, drawn like the proof diagrams: premises above the line, the conclusion below, the rule name to the right. The names are the ones used in the derivations of the proofs tab (hover over a rule name in a proof diagram to see its form)."
+  >
+    各体系の公理と推論規則を、証明図と同じ形（線の上が前提、下が結論、右が規則の名前）で並べます。
+    名前は証明のタブの導出に出てくるものと同じです（証明図で規則の名前にカーソルを合わせても、ここの形が出ます）。
+  </p>
+  <div class="card">
+    <div class="view-switch" id="ru-systems" role="group" aria-label="体系" data-en-aria-label="System"></div>
+    <div class="status" id="ru-status" aria-live="polite"></div>
+    <div id="ru-body"></div>
+  </div>
+</section>
+
+<script>
+  import { byId, h, proveIn, RULES_EVENT, setStatus } from '../lib/dom';
+  import { onLang, tr } from '../lib/i18n';
+  import { fitWhenShown, formula, inference } from '../lib/prooftree';
+  import { loadRules, type RuleDoc, type RuleSystem } from '../lib/rules';
+
+  const picker = byId('ru-systems');
+  const body = byId('ru-body');
+  const status = byId('ru-status');
+  /** 表示している体系 */
+  let current = 'rc';
+
+  /** 規則 1 つの図式（公理は前提のない線）と、条件・補足。 */
+  function ruleItem(r: RuleDoc): HTMLElement {
+    const premises = [
+      ...r.premises.map((x) => formula(x)),
+      ...r.side.map((x) => {
+        const f = formula('', 'pf-side-c');
+        f.append(h('span', { class: 'side' }, tr('副条件', 'side condition')), x);
+        return f;
+      }),
+    ];
+    const diagram = h(
+      'div',
+      { class: 'pf-tree rule-diagram' },
+      inference({ premises, rule: r.name, conclusion: r.conclusion }),
+    );
+    return h(
+      'div',
+      { class: 'rule-item' },
+      diagram,
+      r.condition ? h('div', { class: 'rule-cond' }, tr('条件：', 'Condition: '), r.condition) : null,
+      r.note ? h('div', { class: 'rule-note' }, `※ ${r.note}`) : null,
+    );
+  }
+
+  function render(systems: RuleSystem[]) {
+    const sys = systems.find((s) => s.id === current) ?? systems[0];
+    current = sys.id;
+    // 体系のボタン（名前は括弧の前まで：RC、WC、…）
+    picker.replaceChildren(
+      ...systems.map((s) => {
+        const b = h('button', { type: 'button', class: 'small', 'aria-pressed': String(s.id === sys.id), title: s.name }, s.name.split(/[（(]/)[0]);
+        b.addEventListener('click', () => {
+          current = s.id;
+          render(systems);
+        });
+        return b;
+      }),
+    );
+    const action = h(
+      'button',
+      { type: 'button', class: 'small' },
+      sys.derivations ? tr('この体系で証明する', 'Prove in this system') : tr('この体系で判定する', 'Decide in this system'),
+    );
+    action.addEventListener('click', () => proveIn(sys.id));
+    body.replaceChildren(
+      h('h2', {}, sys.name),
+      h('p', { class: 'rule-source' }, tr('出典：', 'Source: '), sys.source),
+      h('ul', { class: 'rule-lang' }, ...sys.language.map((l) => h('li', {}, l))),
+      ...sys.groups.flatMap((g) => [
+        h('h3', { class: 'rule-group' }, g.title),
+        h('div', { class: 'rule-grid' }, ...g.rules.map(ruleItem)),
+      ]),
+      h('ul', { class: 'rule-notes' }, ...sys.notes.map((n) => h('li', {}, n))),
+      h('div', { class: 'rule-actions' }, action),
+    );
+    // 図式が枠に入らない規則（長い公理など）は、横 1 行を全部使う
+    fitWhenShown(body, () => {
+      for (const item of body.querySelectorAll<HTMLElement>('.rule-item')) {
+        item.classList.remove('wide');
+        const d = item.querySelector<HTMLElement>('.rule-diagram > .pf');
+        if (d && d.scrollWidth + 20 > item.clientWidth) item.classList.add('wide');
+      }
+    });
+  }
+
+  async function load() {
+    try {
+      const systems = await loadRules();
+      setStatus(status, '');
+      render(systems);
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
+  // 証明のタブの「この体系の規則」から来たとき
+  window.addEventListener(RULES_EVENT, (e) => {
+    const id = (e as CustomEvent<string>).detail;
+    if (id && id !== current) {
+      current = id;
+      load();
+    }
+  });
+  onLang(() => load());
+  load();
+</script>

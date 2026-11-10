@@ -1,0 +1,96 @@
+---
+// 表示する標準形の選択：順序数電卓のタブに出る数を、どの標準形で書くかを選ぶ（lib/notation.ts）。
+// 選んだ書き方の説明・出典・例は Rust の notation::notations()（wasm の ordinal_notations）から。
+
+const EN = {
+  lead: 'Choose the normal form used for the ordinals shown on this tab (conversion, exploring fundamental sequences, arithmetic, normal form of an expression and comparison). Input can be written in any notation, as before. LaTeX output and the intermediate lines of computations stay in Veblen form.',
+};
+---
+
+<div class="card" id="nt-card">
+  <h2 data-en="Normal form to display">表示する標準形</h2>
+  <p class="muted" style="margin:0 0 8px;font-size:13px" data-en={EN.lead}>
+    このタブに出る順序数（変換・基本列の探検・演算・式の標準形・比較の結果）を、どの標準形で書くかを選びます。
+    入力は今までどおり、どの書き方でもかまいません。LaTeX の出力と、計算の途中の行は Veblen 形のままです。
+  </p>
+  <div class="view-switch" id="nt-switch" role="group" aria-label="標準形" data-en-aria-label="Normal form">
+    <button type="button" data-nt="veblen" aria-pressed="true" data-en="Veblen form">Veblen 形</button>
+    <button type="button" data-nt="phi" aria-pressed="false" data-en="φ only">φ だけ</button>
+    <button type="button" data-nt="hyper" aria-pressed="false" data-en="Hyperexp + ψ">超指数＋ψ</button>
+    <button type="button" data-nt="worm" aria-pressed="false">worm</button>
+    <button type="button" data-nt="bracket" aria-pressed="false" data-en="Bracket word">括弧語</button>
+    <button type="button" data-nt="iworm" aria-pressed="false">impredicative worm</button>
+  </div>
+  <div id="nt-desc" class="nt-desc"></div>
+</div>
+
+<script>
+  import { call } from '../lib/wasm';
+  import { byId, h } from '../lib/dom';
+  import { lang, onLang, tr } from '../lib/i18n';
+  import { NOTATIONS, notation, onNotation, setNotation, type NotationKey } from '../lib/notation';
+
+  interface NotationInfo {
+    key: string;
+    name: string;
+    lines: string[];
+    source: string;
+    example: string;
+  }
+
+  const buttons = [...byId('nt-switch').querySelectorAll<HTMLButtonElement>('button[data-nt]')];
+  const desc = byId('nt-desc');
+
+  function mark() {
+    for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.nt === notation()));
+  }
+
+  for (const b of buttons) {
+    b.addEventListener('click', () => {
+      const n = b.dataset.nt;
+      if (n && (NOTATIONS as string[]).includes(n)) setNotation(n as NotationKey);
+    });
+  }
+
+  /** 説明の一覧（言語ごとに 1 回だけ読む） */
+  let infos: NotationInfo[] = [];
+  let infosLang = '';
+
+  async function describe() {
+    mark();
+    try {
+      if (infosLang !== lang()) {
+        infos = await call<NotationInfo[]>((api) => {
+          if (!api.ordinal_notations) throw new TypeError('ordinal_notations is not a function');
+          return api.ordinal_notations();
+        });
+        infosLang = lang();
+      }
+    } catch (e) {
+      desc.replaceChildren(h('p', { class: 'status error' }, e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    const i = infos.find((x) => x.key === notation());
+    if (!i) {
+      desc.replaceChildren();
+      return;
+    }
+    // 例は、いつもの Veblen 形の数をこの書き方で
+    const src = infos.find((x) => x.key === 'veblen')?.example ?? '';
+    desc.replaceChildren(
+      h('div', { class: 'def-head' }, i.name),
+      h('ul', {}, ...i.lines.map((l) => h('li', {}, l))),
+      h(
+        'div',
+        { class: 'nt-example' },
+        h('span', { class: 'muted' }, tr('例：', 'Example: ')),
+        h('span', { class: 'mono' }, notation() === 'veblen' ? i.example : `${src}  =  ${i.example}`),
+      ),
+      h('div', { class: 'def-src' }, tr('出典：', 'Source: '), i.source),
+    );
+  }
+
+  onNotation(describe);
+  onLang(describe);
+  describe();
+</script>

@@ -1,5 +1,7 @@
 // DOM を組み立てるための小さな道具。
 
+import { tr } from './i18n';
+
 /** 要素を作る。属性と子（文字列か要素）を受け取る。 */
 export function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -38,8 +40,13 @@ export function s<K extends keyof SVGElementTagNameMap>(
 /** id で要素を取る（見つからなければ例外）。 */
 export function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   const e = document.getElementById(id);
-  if (!e) throw new Error(`要素 #${id} がありません`);
+  if (!e) throw new Error(tr(`要素 #${id} がありません`, `no element #${id}`));
   return e as T;
+}
+
+/** 「計算中…」の文。 */
+export function busyText(): string {
+  return tr('計算中…', 'Computing…');
 }
 
 /** 状態表示の欄にメッセージを出す。 */
@@ -47,7 +54,7 @@ export function setStatus(el: HTMLElement, msg: string, error = false): void {
   el.textContent = msg;
   el.classList.toggle('error', error);
   // 計算中は、小さな worm が伸び縮みする印を出す（CSS の .status.busy）
-  el.classList.toggle('busy', msg === '計算中…');
+  el.classList.toggle('busy', msg === busyText());
 }
 
 /** ツールチップ（ページに 1 つだけ）。 */
@@ -73,7 +80,7 @@ export function hideTip(): void {
 
 /** 例のボタンを並べる。押すと入力欄に入れて `run` を呼ぶ。 */
 export function examples(container: HTMLElement, input: HTMLInputElement, items: string[], run: () => void): void {
-  container.append(h('span', {}, '例：'));
+  container.replaceChildren(h('span', {}, tr('例：', 'e.g.')));
   for (const x of items) {
     const b = h('button', { type: 'button' }, x);
     b.addEventListener('click', () => {
@@ -82,4 +89,30 @@ export function examples(container: HTMLElement, input: HTMLInputElement, items:
     });
     container.append(b);
   }
+}
+
+/** 基本列の探検（Explore.astro）に、この順序数から始めるよう頼むイベント。 */
+export const EXPLORE_EVENT = 'wormlab:explore';
+
+/** 順序数（Veblen 表記の文字列）を基本列の探検に送る。 */
+export function exploreOrdinal(text: string): void {
+  window.dispatchEvent(new CustomEvent<string>(EXPLORE_EVENT, { detail: text }));
+}
+
+/** 規則の一覧（Rules.astro）で、この体系を開くよう頼むイベント。 */
+export const RULES_EVENT = 'wormlab:rules';
+
+/** 規則のタブに移って、体系 id（rc・wc・bc・bwc・rcbi）の一覧を出す。 */
+export function showRules(id: string): void {
+  window.dispatchEvent(new CustomEvent<string>(RULES_EVENT, { detail: id }));
+  location.hash = 'rules';
+}
+
+/** 証明のタブ（Proof.astro）で、この体系を選ぶよう頼むイベント。 */
+export const PROVE_EVENT = 'wormlab:prove';
+
+/** 証明のタブに移って、体系 id を選ぶ。 */
+export function proveIn(id: string): void {
+  window.dispatchEvent(new CustomEvent<string>(PROVE_EVENT, { detail: id }));
+  location.hash = 'proof';
 }

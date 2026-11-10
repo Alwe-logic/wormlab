@@ -4,6 +4,7 @@ import Battle from '../components/Battle.astro';
 import Ordinal from '../components/Ordinal.astro';
 import Proof from '../components/Proof.astro';
 import Model from '../components/Model.astro';
+import Rules from '../components/Rules.astro';
 
 // ロゴの worm の頭（ドット絵、左向き）。1 文字が 1 ドット：
 //   G 体、K 目、W 目の光、R 口、T 舌、. 透明
@@ -35,10 +36,11 @@ const pixels = (map: string[]) =>
   map.flatMap((row, y) => [...row].map((c, x) => ({ x, y, c }))).filter((p) => p.c !== '.');
 
 const tabs = [
-  { id: 'battle', label: 'battle' },
-  { id: 'ordinal', label: '順序数電卓' },
-  { id: 'proof', label: '証明' },
-  { id: 'model', label: 'Kripke モデル' },
+  { id: 'battle', label: 'battle', en: 'battle' },
+  { id: 'ordinal', label: '順序数電卓', en: 'ordinals' },
+  { id: 'proof', label: '証明', en: 'proofs' },
+  { id: 'rules', label: '規則', en: 'rules' },
+  { id: 'model', label: 'Kripke モデル', en: 'Kripke models' },
 ];
 ---
 
@@ -46,30 +48,52 @@ const tabs = [
   <header class="site">
     <div class="wrap">
       <div class="marquee">
-        <!-- ロゴの worm は ⟨2⟩⟨0⟩⟨2⟩⊤（左が頭＝いちばん外側の文字） -->
-        <span class="worm-logo" aria-hidden="true">
-          <svg class="seg head" viewBox="0 0 12 12" shape-rendering="crispEdges">
-            {pixels(HEAD).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={PIXEL_COLOR[p.c]} />)}
-          </svg><span class="seg">2</span><span class="seg">0</span><span class="seg">2</span><svg
-            class="seg tail"
-            viewBox="0 0 8 10"
-            shape-rendering="crispEdges"
+        <!-- ロゴの worm は ⟨2⟩⟨0⟩⟨2⟩⊤（左が頭＝いちばん外側の文字）。頭を押すと battle が進む（lib/logo.ts） -->
+        <span class="worm-logo">
+          <button type="button" class="logo-poke" id="logo-head" aria-label="ロゴの worm の頭" data-en-aria-label="The head of the logo worm"
+            ><svg class="seg head" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true">
+              {pixels(HEAD).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={PIXEL_COLOR[p.c]} />)}
+            </svg></button
+          ><span class="logo-body" id="logo-body" aria-hidden="true"
+            ><span class="seg" style="animation-delay:-0.3s">2</span><span class="seg" style="animation-delay:-0.6s">0</span><span
+              class="seg"
+              style="animation-delay:-0.9s">2</span
+            ></span
+          ><button type="button" class="logo-poke" id="logo-tail" aria-label="ロゴの worm のしっぽ（⊤）" data-en-aria-label="The tail of the logo worm (⊤)"
+            ><svg class="seg tail" viewBox="0 0 8 10" shape-rendering="crispEdges" aria-hidden="true" style="animation-delay:-1.2s">
+              {pixels(TAIL).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={PIXEL_COLOR[p.c]} />)}
+            </svg></button
           >
-            {pixels(TAIL).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={PIXEL_COLOR[p.c]} />)}
-          </svg>
         </span>
         <div class="title">
           <h1>WORMLAB</h1>
-          <span class="sub">Beklemishev の worm・反射計算・順序数を、ブラウザの中で計算する</span>
+          <span class="sub" data-en="Beklemishev's worms, reflection calculi and ordinals, computed in your browser"
+            >Beklemishev の worm・反射計算・順序数を、ブラウザの中で計算する</span
+          >
         </div>
-        <div class="hiscore" title="このサイトで扱ういちばん大きい順序数（RC_BI で届く Bachmann–Howard 順序数）">
+        <button
+          type="button"
+          class="hiscore"
+          id="hiscore"
+          title="いちばん大きい記録。最初は RC_BI で届く Bachmann–Howard 順序数（BI の Π¹₁ 証明論的順序数）"
+          data-en-title="The highest score. At first, the Bachmann–Howard ordinal reached by RC_BI (the Π¹₁ proof-theoretic ordinal of BI)"
+        >
           <span class="label">HI-ORDINAL</span>
           <span class="value">ψ(ε<sub>Ω+1</sub>)</span>
+        </button>
+      </div>
+      <!-- ロゴの worm の battle の様子（頭を押すまで出ない） -->
+      <div class="logo-hud" id="logo-hud" aria-live="polite" hidden></div>
+      <div class="navrow">
+        <nav class="tabs" aria-label="道具" data-en-aria-label="Tools">
+          {tabs.map((t) => <a href={`#${t.id}`} data-tab={t.id} data-en={t.en}>{t.label}</a>)}
+        </nav>
+        <!-- 言語の切り替え（選んだものは次に開いたときも使う） -->
+        <div class="lang-switch" role="group" aria-label="言語 / Language">
+          <button type="button" data-lang="ja" lang="ja" aria-pressed="false">JA</button>
+          <button type="button" data-lang="en" lang="en" aria-pressed="false">EN</button>
         </div>
       </div>
-      <nav class="tabs" aria-label="道具">
-        {tabs.map((t) => <a href={`#${t.id}`} data-tab={t.id}>{t.label}</a>)}
-      </nav>
     </div>
     <div class="wrap"><div class="pellets" aria-hidden="true"></div></div>
   </header>
@@ -77,21 +101,51 @@ const tabs = [
     <Battle />
     <Ordinal />
     <Proof />
+    <Rules />
     <Model />
   </main>
   <footer>
     <div class="wrap">
       <div class="pellets" aria-hidden="true"></div>
-      計算はすべてこのブラウザの中で、Rust で書いた wormlab-core（WebAssembly 版 <span id="version">…</span>）が行います。
-      参考文献：Beklemishev（RC）、de Almeida Borges–Joosten（WC）、Fernández-Duque–Hermo Reyes（括弧語・BC）、
-      Pakhomov–Lazar（RC_BI, arXiv:2610.20115）。
+      <!-- #version は読み込んだあとに書き込むので、言語で入れ替える文の外に置く -->
+      <span data-en="All computation happens in this browser, by wormlab-core written in Rust (WebAssembly build"
+        >計算はすべてこのブラウザの中で、Rust で書いた wormlab-core（WebAssembly 版</span
+      > <span id="version">…</span><span data-en=").">）が行います。</span>
+      <span
+        data-en="References: Beklemishev (RC), de Almeida Borges–Joosten (WC), Fernández-Duque–Hermo Reyes (bracket words, BC), Pakhomov–Lazar (RC_BI, arXiv:2610.20115)."
+        >参考文献：Beklemishev（RC）、de Almeida Borges–Joosten（WC）、Fernández-Duque–Hermo Reyes（括弧語・BC）、
+        Pakhomov–Lazar（RC_BI, arXiv:2610.20115）。</span
+      >
       <div class="credit">EVERY WORM REACHES ⊤ — BUT PA CAN'T PROVE IT</div>
     </div>
   </footer>
+  <!-- HI-ORDINAL のハイスコア表（lib/hiscore.ts が中身を作る） -->
+  <dialog class="hiscore-dialog" id="hiscore-dialog" aria-label="HIGH SCORES"></dialog>
 </Base>
 
 <script>
   import { wasm } from '../lib/wasm';
+  import { applyStatic, lang, setLang, tr, type Lang } from '../lib/i18n';
+  import { setupLogo } from '../lib/logo';
+  import { setupHiscore } from '../lib/hiscore';
+  import { setupConsole } from '../lib/devconsole';
+
+  // 静的な文を今の言語にする（英語なら、Base の小さなスクリプトが隠していた画面をここで出す）
+  applyStatic();
+
+  // 言語の切り替えボタン
+  const langButtons = document.querySelectorAll<HTMLButtonElement>('.lang-switch button');
+  function markLang() {
+    langButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === lang())));
+  }
+  langButtons.forEach((b) =>
+    b.addEventListener('click', () => {
+      const l = b.dataset.lang as Lang;
+      if (l !== lang()) setLang(l);
+      markLang();
+    }),
+  );
+  markLang();
 
   // タブの切り替え（URL の #battle などで選ぶ）
   function select() {
@@ -106,15 +160,20 @@ const tabs = [
   }
   window.addEventListener('hashchange', select);
   select();
+  setupLogo();
 
   // WebAssembly を先に読み込んでおき、版を表示する
   wasm()
     .then((api) => {
       const v = document.getElementById('version');
       if (v) v.textContent = api.version();
+      // 隠し機能（ロゴの worm、ハイスコア表、コンソールの一言）
+      setupHiscore();
+      setupConsole();
     })
     .catch((e) => {
       const v = document.getElementById('version');
-      if (v) v.textContent = `（読み込めません：${e instanceof Error ? e.message : String(e)}）`;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (v) v.textContent = tr(`（読み込めません：${msg}）`, `(could not load: ${msg})`);
     });
 </script>

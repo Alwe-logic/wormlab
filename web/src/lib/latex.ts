@@ -10,6 +10,7 @@
 // 証明木の bussproofs も入っている。TikZ は MathJax では描けないので、コードだけを出す。
 
 import { h } from './dom';
+import { tr } from './i18n';
 import { loaded } from './wasm';
 
 const MATHJAX_URL = 'https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg-full.js';
@@ -50,7 +51,14 @@ export function mathjax(): Promise<MathJaxApi> {
     script.async = true;
     script.onerror = () => {
       loading = null;
-      reject(new Error('数式の表示に使う MathJax を読み込めませんでした（ネットワークを確認してください）。コードはコピーできます。'));
+      reject(
+        new Error(
+          tr(
+            '数式の表示に使う MathJax を読み込めませんでした（ネットワークを確認してください）。コードはコピーできます。',
+            'Could not load MathJax for rendering formulas (check your network). You can still copy the code.',
+          ),
+        ),
+      );
     };
     document.head.append(script);
   });
@@ -92,6 +100,8 @@ export interface TexBlockOptions {
   render?: 'auto' | 'manual' | 'none';
   /** 見出しの下の小さな説明 */
   note?: string;
+  /** コードを最初から開いておくか（既定は render が "none" のときだけ開く） */
+  codeOpen?: boolean;
 }
 
 export interface TexBlock {
@@ -114,7 +124,7 @@ export function texBlock(opts: TexBlockOptions): TexBlock {
   const copy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      msg.textContent = 'コピーしました';
+      msg.textContent = tr('コピーしました', 'Copied');
     } catch {
       // クリップボードが使えない環境では、コードを選択状態にする
       details.open = true;
@@ -124,7 +134,7 @@ export function texBlock(opts: TexBlockOptions): TexBlock {
       const sel = window.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(range);
-      msg.textContent = '選択しました。⌘C（Ctrl+C）でコピーしてください';
+      msg.textContent = tr('選択しました。⌘C（Ctrl+C）でコピーしてください', 'Selected. Press ⌘C (Ctrl+C) to copy');
     }
     window.setTimeout(() => {
       msg.textContent = '';
@@ -132,16 +142,19 @@ export function texBlock(opts: TexBlockOptions): TexBlock {
     }, 4000);
   };
 
-  const copyCode = h('button', { type: 'button', class: 'small' }, 'コードをコピー');
+  const copyCode = h('button', { type: 'button', class: 'small' }, tr('コードをコピー', 'Copy code'));
   copyCode.addEventListener('click', () => copy(code));
-  const copyDoc = h('button', { type: 'button', class: 'small' }, '文書としてコピー');
-  copyDoc.title = 'プリアンブル（\\documentclass・\\usepackage）を付けて、そのまま pdflatex にかけられる形でコピーします';
+  const copyDoc = h('button', { type: 'button', class: 'small' }, tr('文書としてコピー', 'Copy as document'));
+  copyDoc.title = tr(
+    'プリアンブル（\\documentclass・\\usepackage）を付けて、そのまま pdflatex にかけられる形でコピーします',
+    'Copies with a preamble (\\documentclass, \\usepackage), ready to run through pdflatex',
+  );
   copyDoc.addEventListener('click', () => {
     const api = loaded();
     copy(api ? api.latex_document(code) : code);
   });
 
-  const details = h('details', { class: 'tex-details' }, h('summary', {}, 'LaTeX のコード'), pre);
+  const details = h('details', { class: 'tex-details' }, h('summary', {}, tr('LaTeX のコード', 'LaTeX code')), pre);
   const el = h(
     'div',
     { class: 'tex' },
@@ -155,22 +168,22 @@ export function texBlock(opts: TexBlockOptions): TexBlock {
   );
   if (mode !== 'none') el.append(view);
   el.append(details);
-  if (mode === 'none') details.open = true;
+  if (opts.codeOpen ?? mode === 'none') details.open = true;
 
   const draw = () => {
     if (mode === 'none') return;
     if (mode === 'manual' || code.length > AUTO_RENDER) {
-      const b = h('button', { type: 'button', class: 'small' }, '数式で表示');
+      const b = h('button', { type: 'button', class: 'small' }, tr('数式で表示', 'Render'));
       b.addEventListener('click', () => {
-        view.replaceChildren(h('span', { class: 'muted' }, '描いています…'));
+        view.replaceChildren(h('span', { class: 'muted' }, tr('描いています…', 'Rendering…')));
         renderTex(view, code);
       });
       view.replaceChildren(
         b,
-        h('span', { class: 'muted', style: 'margin-left:8px;font-size:12px' }, `（コード ${code.length.toLocaleString()} 文字）`),
+        h('span', { class: 'muted', style: 'margin-left:8px;font-size:12px' }, tr(`（コード ${code.length.toLocaleString()} 文字）`, `(${code.length.toLocaleString()} characters of code)`)),
       );
     } else {
-      view.replaceChildren(h('span', { class: 'muted' }, '描いています…'));
+      view.replaceChildren(h('span', { class: 'muted' }, tr('描いています…', 'Rendering…')));
       renderTex(view, code);
     }
   };

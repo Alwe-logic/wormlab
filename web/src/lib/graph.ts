@@ -7,6 +7,7 @@
 // チェックを入れたものだけ描く。
 
 import { h, hideTip, s, showTip } from './dom';
+import { tr } from './i18n';
 import { texBlock } from './latex';
 import { call } from './wasm';
 
@@ -69,7 +70,7 @@ function edgePath(x1: number, y1: number, x2: number, y2: number, bend: number):
 }
 
 /** モデルを描く。`container` の中身を置き換える。 */
-export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel = 'B が真'): void {
+export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel = tr('B が真', 'B is true')): void {
   container.replaceChildren();
   const { x, y, width, height } = m.layout;
   const names = m.relations.map((r) => r.name);
@@ -78,7 +79,7 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
   // 操作：骨組みの辺と、関係ごとの閉包後の辺
   const legend = h('div', { class: 'legend' });
   const showBase = h('input', { type: 'checkbox', checked: true }) as HTMLInputElement;
-  legend.append(h('label', {}, showBase, '骨組み（閉包の前の辺、太線）'));
+  legend.append(h('label', {}, showBase, tr('骨組み（閉包の前の辺、太線）', 'skeleton (edges before closure, thick)')));
   const relChecks = m.relations.map((r, i) => {
     const c = h('input', { type: 'checkbox' }) as HTMLInputElement;
     legend.append(
@@ -87,7 +88,10 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
     return c;
   });
   container.append(
-    h('div', { class: 'muted', style: 'font-size:13px' }, '関係のチェックを入れると、閉包を取った後の辺（細線）も描きます。'),
+    h('div', { class: 'muted', style: 'font-size:13px' }, tr(
+        '関係のチェックを入れると、閉包を取った後の辺（細線）も描きます。',
+        'Check a relation to also draw its edges after closure (thin lines).',
+      )),
     legend,
   );
 
@@ -140,10 +144,10 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
           'stroke-width': 2.2,
           'marker-end': markerFor(i),
         });
-        tipOn(p, `${a} ${name} ${b}（骨組み）`);
+        tipOn(p, `${a} ${name} ${b}${tr('（骨組み）', ' (skeleton)')}`);
         // 当たり判定を広げる透明な線
         const hit = s('path', { d: p.getAttribute('d')!, fill: 'none', stroke: 'transparent', 'stroke-width': 10 });
-        tipOn(hit, `${a} ${name} ${b}（骨組み）`);
+        tipOn(hit, `${a} ${name} ${b}${tr('（骨組み）', ' (skeleton)')}`);
         baseLayer.append(p, hit);
       }
     }
@@ -183,7 +187,7 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
         String(p.id),
       ),
     );
-    const sub = [p.label, p.kind === '構文木' || p.kind === '点' ? '' : p.kind].filter(Boolean).join(' ');
+    const sub = [p.label, p.tag === 'tree' || p.tag === 'point' ? '' : p.kind].filter(Boolean).join(' ');
     if (sub) {
       g.append(
         s(
@@ -194,22 +198,25 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
       );
     }
     const info = [
-      `点 ${p.id}`,
+      tr(`点 ${p.id}`, `point ${p.id}`),
       p.kind,
-      p.label ? `変数：${p.label}` : '',
+      p.label ? tr(`変数：${p.label}`, `variables: ${p.label}`) : '',
       p.anchor !== undefined && p.anchor !== null && p.anchor !== p.id ? `anchor：${p.anchor}` : '',
       ring ? highlightLabel : '',
     ].filter(Boolean);
-    tipOn(g, info.join('、'));
+    tipOn(g, info.join(tr('、', ', ')));
     nodeLayer.append(g);
   }
 
   // TikZ のコード：図と同じ配置で、いま描いている辺（骨組み・チェックした関係）を描く
   const tikz = texBlock({
-    title: 'TikZ のコード（上の図と同じ配置・同じ辺）',
+    title: tr('TikZ のコード（上の図と同じ配置・同じ辺）', 'TikZ code (same layout and edges as the figure above)'),
     code: '',
     render: 'none',
-    note: 'LaTeX の文書で \\usepackage{tikz} が必要です。チェックを切り替えると、描く辺もそれに合わせて変わります。',
+    note: tr(
+      'LaTeX の文書で \\usepackage{tikz} が必要です。チェックを切り替えると、描く辺もそれに合わせて変わります。',
+      'Needs \\usepackage{tikz} in your LaTeX document. Toggling the checkboxes changes the edges drawn here too.',
+    ),
   });
   const model = JSON.stringify(m);
   const updateTikz = async () => {
@@ -233,16 +240,16 @@ export function renderModel(container: HTMLElement, m: ModelJson, highlightLabel
 
   // 表（色に頼らずに読める形）
   const rows = m.relations.map((r) =>
-    h('tr', {}, h('th', {}, r.name), h('td', {}, r.edges.map(([a, b]) => `${a}→${b}`).join(' ') || '（なし）')),
+    h('tr', {}, h('th', {}, r.name), h('td', {}, r.edges.map(([a, b]) => `${a}→${b}`).join(' ') || tr('（なし）', '(none)'))),
   );
   const pointsRow = h(
     'tr',
     {},
-    h('th', {}, '点'),
+    h('th', {}, tr('点', 'points')),
     h('td', {}, m.points.map((p) => `${p.id}:${p.kind}${p.label ? `{${p.label}}` : ''}`).join('  ')),
   );
   container.append(
-    h('details', { style: 'margin-top:8px' }, h('summary', {}, '表で見る'), h('table', { class: 'kv' }, pointsRow, ...rows)),
+    h('details', { style: 'margin-top:8px' }, h('summary', {}, tr('表で見る', 'View as a table')), h('table', { class: 'kv' }, pointsRow, ...rows)),
     tikz.el,
   );
   updateTikz();

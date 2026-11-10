@@ -1,0 +1,175 @@
+---
+// 順序数の演算：α + β・α·β・α^β を計算し、計算の過程（使った規則つき）と LaTeX を出す。
+// 順序数電卓のタブ（Ordinal.astro）の中に置く。
+
+const KINDS = [
+  { value: 'ordinal', ja: '順序数', en: 'ordinal' },
+  { value: 'worm', ja: 'worm', en: 'worm' },
+  { value: 'bracket', ja: '括弧語', en: 'bracket word' },
+  { value: 'iworm', ja: 'impredicative worm', en: 'impredicative worm' },
+];
+---
+
+<div class="card">
+  <h2 data-en="Arithmetic">演算</h2>
+  <p
+    class="muted"
+    style="margin:0 0 8px;font-size:13px"
+    data-en="Ordinal addition, multiplication and exponentiation, with each step of the computation. They are not commutative: 1 + ω = ω but ω + 1 > ω, and 2·ω = ω but ω·2 = ω + ω. Numbers with Ω and ψ work too."
+  >
+    順序数の足し算・掛け算・べき乗を、計算の過程つきで出します。交換法則は成り立ちません（1 + ω = ω だが ω + 1 > ω、2·ω = ω
+    だが ω·2 = ω + ω）。Ω・ψ を含む数も計算できます。
+  </p>
+  <div class="controls">
+    <select id="a-kind-a" aria-label="左の種類" data-en-aria-label="Left kind">
+      {KINDS.map((k) => <option value={k.value} data-en={k.en}>{k.ja}</option>)}
+    </select>
+    <input type="text" id="a-a" value="ω + 1" aria-label="左" data-en-aria-label="Left" />
+    <select id="a-op" aria-label="演算" data-en-aria-label="Operation" class="op">
+      <option value="+">+</option>
+      <option value="*" selected>·</option>
+      <option value="^">^</option>
+    </select>
+    <select id="a-kind-b" aria-label="右の種類" data-en-aria-label="Right kind">
+      {KINDS.map((k) => <option value={k.value} data-en={k.en}>{k.ja}</option>)}
+    </select>
+    <input type="text" id="a-b" value="ω" aria-label="右" data-en-aria-label="Right" />
+    <button class="primary" id="a-run" type="button" data-en="Compute">計算</button>
+  </div>
+  <div class="examples" id="a-examples"></div>
+  <div class="status" id="a-status" aria-live="polite"></div>
+  <div id="a-out"></div>
+</div>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { busyText, byId, exploreOrdinal, h, setStatus } from '../lib/dom';
+  import { recordOrdinal } from '../lib/hiscore';
+  import { onLang, tr } from '../lib/i18n';
+  import { texBlock } from '../lib/latex';
+  import { fallbackLine, notation, notationName, onNotation, show } from '../lib/notation';
+
+  interface ArithJson {
+    a: string;
+    b: string;
+    lhs: string;
+    result: string;
+    steps: { text: string; note: string }[];
+    latex: string;
+  }
+
+  /** 例：左・演算・右（どれも順序数として読む） */
+  const EXAMPLES: [string, string, string][] = [
+    ['1', '+', 'ω'],
+    ['ω', '+', '1'],
+    ['2', '*', 'ω'],
+    ['ω', '*', '2'],
+    ['ω + 1', '*', 'ω + 1'],
+    ['2', '^', 'ω + 1'],
+    ['ω + 1', '^', 'ω + 2'],
+    ['ε_0', '^', 'ω'],
+    ['Ω + 1', '*', 'ω'],
+  ];
+
+  const kindA = byId<HTMLSelectElement>('a-kind-a');
+  const kindB = byId<HTMLSelectElement>('a-kind-b');
+  const inA = byId<HTMLInputElement>('a-a');
+  const inB = byId<HTMLInputElement>('a-b');
+  const op = byId<HTMLSelectElement>('a-op');
+  const status = byId('a-status');
+  const box = byId('a-out');
+  /** 一度でも計算したか（言語を切り替えたら出し直す） */
+  let ran = false;
+
+  /** 例のボタンの文字：和は括弧でくくる */
+  const paren = (x: string) => (x.includes('+') ? `(${x})` : x);
+  const label = ([a, o, b]: [string, string, string]) =>
+    o === '+' ? `${a} + ${b}` : o === '*' ? `${paren(a)}·${paren(b)}` : `${paren(a)}^${paren(b)}`;
+
+  function fillExamples() {
+    const ex = byId('a-examples');
+    ex.replaceChildren(h('span', {}, tr('例：', 'e.g.')));
+    for (const e of EXAMPLES) {
+      const b = h('button', { type: 'button' }, label(e));
+      b.addEventListener('click', () => {
+        [inA.value, op.value, inB.value] = e;
+        kindA.value = kindB.value = 'ordinal';
+        run();
+      });
+      ex.append(b);
+    }
+  }
+
+  async function run() {
+    ran = true;
+    setStatus(status, busyText());
+    await nextFrame();
+    try {
+      const r = await call<ArithJson>((api) => api.ordinal_arith(op.value, kindA.value, inA.value, kindB.value, inB.value));
+      setStatus(status, '');
+      recordOrdinal(r.result, 'arith');
+      // 結果：左辺 = 結果
+      const useLeft = h('button', { type: 'button', class: 'small' }, tr('結果を左に入れる', 'Use the result as the left operand'));
+      useLeft.addEventListener('click', () => {
+        inA.value = r.result;
+        kindA.value = 'ordinal';
+        inB.focus();
+      });
+      const explore = h('button', { type: 'button', class: 'small' }, tr('結果の基本列をたどる', 'Explore its fundamental sequences'));
+      explore.addEventListener('click', () => exploreOrdinal(r.result));
+      // 計算の過程：「= 式」と、その行で使った規則
+      const steps = h(
+        'ol',
+        { class: 'calc-steps' },
+        ...r.steps.map((s) => h('li', {}, h('div', { class: 'eq' }, `= ${s.text}`), h('div', { class: 'why' }, s.note))),
+      );
+      // 結果は選んだ標準形で。計算の過程は Cantor 標準形（Veblen 形）のまま
+      const other = notation() !== 'veblen';
+      box.replaceChildren(
+        h('div', { class: 'verdict mono' }, `${r.lhs} = ${show(r.result)}`),
+        ...[fallbackLine([r.result])].filter((x): x is HTMLElement => x !== null),
+        h('div', { class: 'controls', style: 'margin-top:6px' }, useLeft, explore),
+        h('div', { class: 'muted', style: 'font-size:13px;margin-top:10px' }, `${tr('計算の過程：', 'How it is computed: ')}${r.lhs}`),
+        steps,
+        ...(other
+          ? [
+              h(
+                'p',
+                { class: 'nf-note' },
+                tr(
+                  `計算の過程は Cantor 標準形（Veblen 形）で書いています。結果だけ${notationName()}で：${r.result} = ${show(r.result)}`,
+                  `The steps are written in Cantor normal form (Veblen form); only the result is shown as ${notationName()}: ${r.result} = ${show(r.result)}`,
+                ),
+              ),
+            ]
+          : []),
+        texBlock({
+          title: tr('LaTeX（計算の過程）', 'LaTeX (the computation)'),
+          code: r.latex,
+          note: tr('\\begin{align*} は amsmath。', '\\begin{align*} needs amsmath.'),
+        }).el,
+      );
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+      box.replaceChildren();
+    }
+  }
+
+  byId('a-run').addEventListener('click', run);
+  for (const el of [inA, inB]) {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') run();
+    });
+  }
+  fillExamples();
+
+  // 言語の切り替え：例を並べ直し、結果を出していたら出し直す
+  onLang(() => {
+    fillExamples();
+    if (ran) run();
+  });
+  // 標準形の切り替え：結果を出していたら出し直す
+  onNotation(() => {
+    if (ran) run();
+  });
+</script>

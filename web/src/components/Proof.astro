@@ -3,21 +3,26 @@
 ---
 
 <section class="panel" data-panel="proof">
-  <p class="lead">
+  <p
+    class="lead"
+    data-en="Decides a sequent A ⊢ B. If it holds, a derivation is built and checked before it is shown (the checker just matches each step of the derivation against the rules, so a displayed derivation is guaranteed to be correct). If it does not hold, a countermodel is shown. Proofs also come as LaTeX (a bussproofs proof tree and a numbered list), and models as TikZ code."
+  >
     シーケント A ⊢ B を判定し、成り立てば導出を作って検査してから表示します（検査器は導出を 1 ステップずつ
     規則に照らすだけなので、表示された導出は正しいと保証されます）。成り立たなければ反例のモデルを表示します。
     証明は LaTeX（bussproofs の証明木と行番号つきの一覧）、モデルは TikZ のコードでも出します。
   </p>
   <div class="card">
     <div class="controls">
-      <select id="p-system" aria-label="体系">
-        <option value="rc">RC（Reflection Calculus）</option>
-        <option value="wc">WC（Worm Calculus、worm だけ）</option>
-        <option value="bc">BC（Bracket Calculus）</option>
-        <option value="rcbi">RC_BI（判定とモデルだけ）</option>
+      <select id="p-system" aria-label="体系" data-en-aria-label="System">
+        <option value="rc" data-en="RC (Reflection Calculus)">RC（Reflection Calculus）</option>
+        <option value="wc" data-en="WC (Worm Calculus, worms only)">WC（Worm Calculus、worm だけ）</option>
+        <option value="bc" data-en="BC (Bracket Calculus)">BC（Bracket Calculus）</option>
+        <option value="bwc" data-en="BWC (bracket words only; the BC version of WC)">BWC（括弧語だけ、WC の BC 版）</option>
+        <option value="rcbi" data-en="RC_BI (decision and models only)">RC_BI（判定とモデルだけ）</option>
       </select>
-      <input type="text" id="p-input" value="<1>p & <0>q |- <1>(p & <0>q)" aria-label="シーケント" />
-      <button class="primary" id="p-run" type="button">判定</button>
+      <input type="text" id="p-input" value="<1>p & <0>q |- <1>(p & <0>q)" aria-label="シーケント" data-en-aria-label="Sequent" />
+      <button class="primary" id="p-run" type="button" data-en="Decide">判定</button>
+      <button id="p-rules" type="button" data-en="Rules of this system" title="この体系の公理と規則の一覧（規則のタブ）" data-en-title="Axioms and rules of this system (the rules tab)">この体系の規則</button>
     </div>
     <div class="examples" id="p-examples"></div>
     <div class="status" id="p-status" aria-live="polite"></div>
@@ -32,8 +37,10 @@
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { byId, h, setStatus } from '../lib/dom';
+  import { busyText, byId, examples, h, PROVE_EVENT, setStatus, showRules } from '../lib/dom';
+  import { onLang, tr } from '../lib/i18n';
   import { renderProof, type ProofJson } from '../lib/proof';
+  import { ruleTexts } from '../lib/rules';
   import { renderModel, type ModelJson } from '../lib/graph';
   import { texBlock } from '../lib/latex';
 
@@ -52,69 +59,119 @@
     rc: ['<1>p & <0>q |- <1>(p & <0>q)', '<2>p |- <0><1>p', '<ω+1>p & <ω>q |- <ω+1>(p & <ω>q)', '<0>p |- <1>p'],
     wc: ['1 1 |- 0 1 0 1', '2 0 1 |- 1 0 1', '<ω><ω> |- <0><ω><0>', '1 |- 2'],
     bc: ['((()))p |- ()(())p', '((((())))) |- ()(((())))', '((())())p |- ((()))p', '()p |- (())p'],
+    bwc: ['((())) |- ()(())', '(((()))) |- ()((()))', '((())()) |- ((()))', '() |- (())'],
     rcbi: ['<2>_2 T |- <1> D T', '<2>_2<2>_3 T |- <1>(<1>_3<2>_3 T)', 'D T |- <2>_2 T'],
   };
-  const NOTES: Record<string, string> = {
-    rc: '書き方：<1>p & <0>q |- <1>(p & <0>q)。モダリティは自然数か順序数（<ω+1>、<ε_0>）。',
-    wc: '書き方：worm どうしのシーケント "1 1 |- 0 1 0 1"。文字が順序数なら <ω><0>。',
-    bc: '書き方：(a)φ（a は括弧語）。((()))p = ⟨ω⟩p。括弧語はそのまま式として読む。',
-    rcbi: '書き方：<1>_2 = ⟨1⟩₂、<2>_3 = ⟨2⟩₃、D = ↓、N = ∇、T = ⊤。変数のない式だけ。',
+  const NOTES: Record<string, () => string> = {
+    rc: () =>
+      tr(
+        '書き方：<1>p & <0>q |- <1>(p & <0>q)。モダリティは自然数か順序数（<ω+1>、<ε_0>）。',
+        'Syntax: <1>p & <0>q |- <1>(p & <0>q). Modalities are natural numbers or ordinals (<ω+1>, <ε_0>).',
+      ),
+    wc: () =>
+      tr(
+        '書き方：worm どうしのシーケント "1 1 |- 0 1 0 1"。文字が順序数なら <ω><0>。',
+        'Syntax: a sequent between worms, "1 1 |- 0 1 0 1". With ordinal letters: <ω><0>.',
+      ),
+    bc: () =>
+      tr(
+        '書き方：(a)φ（a は括弧語）。((()))p = ⟨ω⟩p。括弧語はそのまま式として読む。',
+        'Syntax: (a)φ, where a is a bracket word. ((()))p = ⟨ω⟩p. A bracket word on its own is read as a formula.',
+      ),
+    bwc: () =>
+      tr(
+        '書き方：括弧語どうしのシーケント "((())) |- ()(())"。文字の大小（A3・R3 の条件）も、この体系の導出（副条件）で示します。',
+        'Syntax: a sequent between bracket words, "((())) |- ()(())". The order of letters (the conditions of A3 and R3) is also shown by derivations in this system (side conditions).',
+      ),
+    rcbi: () =>
+      tr(
+        '書き方：<1>_2 = ⟨1⟩₂、<2>_3 = ⟨2⟩₃、D = ↓、N = ∇、T = ⊤。変数のない式だけ。',
+        'Syntax: <1>_2 = ⟨1⟩₂, <2>_3 = ⟨2⟩₃, D = ↓, N = ∇, T = ⊤. Variable-free formulas only.',
+      ),
   };
 
   const system = byId<HTMLSelectElement>('p-system');
   const input = byId<HTMLInputElement>('p-input');
   const status = byId('p-status');
+  /** 一度でも実行したか（言語を切り替えたら出し直す） */
+  let ran = false;
 
   function fillExamples() {
     const box = byId('p-examples');
-    box.replaceChildren(h('span', {}, '例：'));
-    for (const x of EXAMPLES[system.value]) {
-      const b = h('button', { type: 'button' }, x);
-      b.addEventListener('click', () => {
-        input.value = x;
-        run();
-      });
-      box.append(b);
-    }
-    box.append(h('span', { style: 'flex-basis:100%' }, NOTES[system.value]));
+    examples(box, input, EXAMPLES[system.value], run);
+    box.append(h('span', { style: 'flex-basis:100%' }, NOTES[system.value]()));
   }
 
   async function run() {
-    setStatus(status, '計算中…');
+    ran = true;
+    setStatus(status, busyText());
     await nextFrame();
     try {
       const r = await call<ProveJson>((api) => api.prove(system.value, input.value));
       setStatus(status, '');
-      const name = { rc: 'RC', wc: 'WC', bc: 'BC', rcbi: 'RC_BIω' }[system.value] ?? system.value;
+      const name = { rc: 'RC', wc: 'WC', bc: 'BC', bwc: 'BWC', rcbi: 'RC_BIω' }[system.value] ?? system.value;
       const v = byId('p-verdict');
       v.replaceChildren(
-        h('span', { class: r.holds ? 'yes' : 'no' }, r.holds ? `${name} で導出できる：` : `${name} では導出できない：`),
+        h(
+          'span',
+          { class: r.holds ? 'yes' : 'no' },
+          r.holds ? tr(`${name} で導出できる：`, `Derivable in ${name}: `) : tr(`${name} では導出できない：`, `Not derivable in ${name}: `),
+        ),
         r.sequent,
       );
       const extra: string[] = [];
-      if (r.tau) extra.push(`τ で RC_Γ0 に翻訳：${r.tau}`);
-      if (r.stats?.side_conditions !== undefined) {
-        extra.push(`副条件（括弧語どうしの比較）の導出 ${r.stats.side_conditions} 個、入れ子は最大 ${r.stats.max_side_depth} 段`);
+      if (r.tau) extra.push(tr(`τ で RC_Γ0 に翻訳：${r.tau}`, `Translated into RC_Γ0 by τ: ${r.tau}`));
+      const st = r.stats;
+      if (st?.side_conditions !== undefined) {
+        extra.push(
+          tr(
+            `副条件（括弧語どうしの比較）の導出 ${st.side_conditions} 個、入れ子は最大 ${st.max_side_depth} 段`,
+            `${st.side_conditions} side-condition derivations (comparisons of bracket words), nested up to ${st.max_side_depth} deep`,
+          ),
+        );
       }
-      if (r.stats?.facts_used !== undefined) {
-        extra.push(`書き足した事実 ${r.stats.facts_used} 個 / 飽和で得た事実 ${r.stats.facts_total} 個`);
+      if (st?.facts_used !== undefined) {
+        extra.push(
+          tr(
+            `書き足した事実 ${st.facts_used} 個 / 飽和で得た事実 ${st.facts_total} 個`,
+            `${st.facts_used} facts written out / ${st.facts_total} facts from saturation`,
+          ),
+        );
       }
-      if (r.proof) extra.push('導出は検査済み');
-      byId('p-extra').textContent = extra.join('　');
-      byId('p-tex').replaceChildren(texBlock({ title: 'シーケント（LaTeX）', code: r.latex }).el);
+      if (r.proof) extra.push(tr('導出は検査済み', 'derivation checked'));
+      byId('p-extra').textContent = extra.join(tr('　', ' · '));
+      byId('p-tex').replaceChildren(texBlock({ title: tr('シーケント（LaTeX）', 'Sequent (LaTeX)'), code: r.latex }).el);
       const body = byId('p-body');
       if (r.proof) {
-        renderProof(body, r.proof);
+        renderProof(body, r.proof, {
+          ruleText: await ruleTexts(system.value),
+          sides: system.value === 'bc' || system.value === 'bwc',
+        });
       } else if (r.model) {
         const title = r.holds
-          ? '左辺の有限モデル M_A（根 0 で右辺が真）'
-          : '反例：左辺のモデルの根 0 で右辺が偽（右辺が真の点を太い輪で示す）';
+          ? tr(
+              '左辺の有限モデル M_A（根 0 で右辺が真）',
+              'Finite model M_A of the left-hand side (the right-hand side is true at the root 0)',
+            )
+          : tr(
+              '反例：左辺のモデルの根 0 で右辺が偽（右辺が真の点を太い輪で示す）',
+              "Countermodel: the right-hand side is false at the root 0 of the left-hand side's model (points where it is true have a thick ring)",
+            );
         body.replaceChildren(h('p', { style: 'margin:0 0 6px' }, title));
         const g = h('div');
         body.append(g);
-        renderModel(g, r.model, '右辺が真');
+        renderModel(g, r.model, tr('右辺が真', 'right-hand side true'));
       } else {
-        body.replaceChildren(h('p', { class: 'muted' }, '（WC は worm だけの体系なので、反例モデルは出しません）'));
+        body.replaceChildren(
+          h(
+            'p',
+            { class: 'muted' },
+            tr(
+              '（WC・BWC は worm だけの体系なので、反例モデルは出しません）',
+              '(WC and BWC are systems of worms only, so no countermodel is shown)',
+            ),
+          ),
+        );
       }
       byId('p-result').hidden = false;
     } catch (e) {
@@ -126,9 +183,25 @@
     input.value = EXAMPLES[system.value][0];
     fillExamples();
   });
+  byId('p-rules').addEventListener('click', () => showRules(system.value));
+  // 規則のタブの「この体系で証明する」から来たとき
+  window.addEventListener(PROVE_EVENT, (e) => {
+    const id = (e as CustomEvent<string>).detail;
+    if (id && id !== system.value && EXAMPLES[id]) {
+      system.value = id;
+      input.value = EXAMPLES[id][0];
+      fillExamples();
+    }
+  });
   byId('p-run').addEventListener('click', run);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') run();
   });
   fillExamples();
+
+  // 言語の切り替え：例と書き方を並べ直し、結果を出していたら出し直す
+  onLang(() => {
+    fillExamples();
+    if (ran) run();
+  });
 </script>

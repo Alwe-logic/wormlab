@@ -3,7 +3,10 @@
 ---
 
 <section class="panel" data-panel="battle">
-  <p class="lead">
+  <p
+    class="lead"
+    data-en="Start from a worm and, at step k, lower it by one step using the fundamental sequence at k (Beklemishev's worm battle). However long it grows along the way, it always reaches ⊤ in the end. Yet PA cannot prove this fact (and for the bracket-word version, not even ATR₀ can)."
+  >
     出発点の worm を、k 回目には k を使った基本列で 1 段ずつ下げていきます（Beklemishev の worm battle）。
     途中でどれだけ長くなっても、いつか必ず ⊤ に着きます。ただしこの事実は PA では証明できません（括弧語の版は
     ATR₀ でも証明できません）。
@@ -11,16 +14,16 @@
   <div class="card">
     <div class="controls">
       <label
-        >種類
+        ><span data-en="Kind">種類</span>
         <select id="b-kind">
-          <option value="worm">worm（文字が自然数、ε₀ まで）</option>
-          <option value="bracket">括弧語（Γ₀ まで）</option>
-          <option value="rcbi">RC_BI の式（Bachmann–Howard まで）</option>
+          <option value="worm" data-en="worm (natural-number letters, up to ε₀)">worm（文字が自然数、ε₀ まで）</option>
+          <option value="bracket" data-en="bracket word (up to Γ₀)">括弧語（Γ₀ まで）</option>
+          <option value="rcbi" data-en="RC_BI formula (up to Bachmann–Howard)">RC_BI の式（Bachmann–Howard まで）</option>
         </select>
       </label>
-      <input type="text" id="b-input" value="2 0 2" aria-label="出発点" />
-      <label>最大ステップ <input type="number" id="b-limit" value="200" min="1" max="2000" /></label>
-      <button class="primary" id="b-run" type="button">実行</button>
+      <input type="text" id="b-input" value="2 0 2" aria-label="出発点" data-en-aria-label="Starting point" />
+      <label><span data-en="Max steps">最大ステップ</span> <input type="number" id="b-limit" value="200" min="1" max="2000" /></label>
+      <button class="primary" id="b-run" type="button" data-en="Run">実行</button>
     </div>
     <div class="examples" id="b-examples"></div>
     <div class="status" id="b-status" aria-live="polite"></div>
@@ -28,28 +31,28 @@
 
   <div class="card" id="b-result" hidden>
     <div class="player">
-      <button id="b-prev" type="button" aria-label="前のステップ">◀</button>
+      <button id="b-prev" type="button" aria-label="前のステップ" data-en-aria-label="Previous step">◀</button>
       <button id="b-play" type="button">▶ 再生</button>
-      <button id="b-next" type="button" aria-label="次のステップ">▶</button>
-      <input type="range" id="b-slider" min="0" max="0" value="0" aria-label="ステップ" />
+      <button id="b-next" type="button" aria-label="次のステップ" data-en-aria-label="Next step">▶</button>
+      <input type="range" id="b-slider" min="0" max="0" value="0" aria-label="ステップ" data-en-aria-label="Step" />
       <span id="b-pos" class="hud"></span>
     </div>
     <div id="b-bars"></div>
     <table class="kv">
-      <tr><th>このステップ</th><td><div class="step-text" id="b-text"></div></td></tr>
-      <tr><th>順序数</th><td id="b-ord"></td></tr>
+      <tr><th data-en="This step">このステップ</th><td id="b-text-cell"></td></tr>
+      <tr><th data-en="Ordinal">順序数</th><td id="b-ord"></td></tr>
       <tr>
-        <th>数式（LaTeX）</th>
+        <th data-en="Formula (LaTeX)">数式（LaTeX）</th>
         <td>
           <div class="tex-inline" id="b-math"></div>
-          <button type="button" class="small" id="b-copy">このステップのコードをコピー</button>
+          <button type="button" class="small" id="b-copy" data-en="Copy this step's code">このステップのコードをコピー</button>
           <span class="tex-msg" id="b-copy-msg" aria-live="polite"></span>
         </td>
       </tr>
     </table>
     <div id="b-chart" style="margin-top:12px"></div>
     <details style="margin-top:8px">
-      <summary>全ステップの順序数</summary>
+      <summary data-en="Ordinals of all steps">全ステップの順序数</summary>
       <ol class="seq" start="0" id="b-list"></ol>
     </details>
     <div id="b-tex"></div>
@@ -57,12 +60,20 @@
 </section>
 
 <script>
-  import { call, nextFrame } from '../lib/wasm';
-  import { byId, h, setStatus } from '../lib/dom';
-  import { bars, lengthChart } from '../lib/charts';
+  import { call, loaded, nextFrame } from '../lib/wasm';
+  import { busyText, byId, examples, h, setStatus } from '../lib/dom';
+  import { recordOrdinal } from '../lib/hiscore';
+  import { onLang, tr } from '../lib/i18n';
+  import { bars, bracketDepth, fmtCount, lengthChart, nest, nestTree, wormTree, type BracketParts, type WormNode } from '../lib/charts';
   import { renderTex, texBlock } from '../lib/latex';
 
   interface Step {
+    /** worm の長さ（多倍長の 10 進）と、その近似値（グラフ用）。新しい wasm の worm の battle だけ */
+    length?: string;
+    length_num?: number;
+    /** 順序数の全体の文字数（ordinal は長ければ先頭だけ） */
+    ordinal_chars?: number;
+    /** 古い wasm の worm の battle は、文字をそのまま送ってくる */
     letters?: number[];
     ranks?: number[];
     letter_ordinals?: string[];
@@ -99,13 +110,135 @@
   let timer: number | undefined;
   let stepTex = '';
   let mathSeq = 0;
+  /** 一度でも実行したか（言語を切り替えたら、表示中の結果をその言語で出し直す） */
+  let ran = false;
+  /** 括弧語の battle の全ステップで最大の入れ子の深さ（図の縦の目盛りをそろえる） */
+  let bracketMax = 1;
+
+  /** worm の battle の 1 ステップの形（wasm の battle_worm_view）。見ているステップだけ取る */
+  interface WormView {
+    tree: WormNode[];
+    truncated: boolean;
+    text: string;
+    /** 元の worm（4000 文字までのときだけ） */
+    plain: string | null;
+    length: string;
+    latex: string | null;
+    ordinal: string;
+    ordinal_chars: number;
+    ordinal_latex: string | null;
+  }
+  /** battle を始めたときの入力（battle_worm_view に渡す） */
+  let runInput = '';
+  /** worm の文字の最大値（battle では文字は大きくならないので、出発点の最大値で棒の高さをそろえる） */
+  let wormMax = 1;
+  let viewCache = new Map<number, WormView | null>();
+
+  /** ステップ i の worm の形。古い wasm（関数がない）なら null。 */
+  function wormViewOf(i: number): WormView | null {
+    const cached = viewCache.get(i);
+    if (cached !== undefined) return cached;
+    let v: WormView | null = null;
+    const api = loaded();
+    if (api?.battle_worm_view) {
+      try {
+        const r = JSON.parse(api.battle_worm_view(runInput, i));
+        if (!r.error) v = r;
+      } catch {
+        v = null;
+      }
+    }
+    viewCache.set(i, v);
+    return v;
+  }
+
+  /** まとめた形の木の中の最大の文字 */
+  function treeMax(ns: WormNode[]): number {
+    return ns.reduce<number>((m, nd) => Math.max(m, typeof nd === 'number' ? nd : treeMax(nd.r)), 0);
+  }
+
+  /** 繰り返しでまとめた書き方（wasm の battle_compact） */
+  interface Compact {
+    text: string;
+    latex: string;
+    /** まとめた形で書いた文字の数 */
+    shown: number;
+    /** 括弧語のとき：次のステップでの役割ごとに分けてまとめた形（図に使う） */
+    parts?: BracketParts;
+  }
+  /** ステップごとのまとめた形（実行し直したら捨てる）。まとめない・まとめられないステップは null */
+  let compactCache = new Map<number, Compact | null>();
+  /** 「元の worm」の欄を開いているか（ステップを動かしても開いたままにする） */
+  let rawOpen = false;
+
+  /** ステップの元の書き方 */
+  function rawText(st: Step): string {
+    if (data?.kind === 'worm') return st.letters?.length ? st.letters.join(' ') : '⊤';
+    return st.text ?? '';
+  }
+
+  /** 長いステップ（worm は 16 文字以上、括弧語は 40 記号以上）を繰り返しでまとめる。
+   *  まとめても短くならないとき、古い wasm で関数がないときは null。 */
+  function compactOf(i: number, st: Step): Compact | null {
+    if (!data || data.kind === 'rcbi') return null;
+    const cached = compactCache.get(i);
+    if (cached !== undefined) return cached;
+    const raw = rawText(st);
+    const n = data.kind === 'worm' ? (st.letters?.length ?? 0) : raw.length;
+    const long = data.kind === 'worm' ? n >= 16 : n >= 40;
+    let c: Compact | null = null;
+    const api = loaded();
+    if (long && api?.battle_compact) {
+      try {
+        const v = JSON.parse(api.battle_compact(data.kind, raw));
+        // まとめた形が元より短いときだけ使う（括弧語は記号の数で比べる）
+        if (!v.error && v.shown < (data.kind === 'worm' ? n : raw.replace(/[^()]/g, '').length / 2)) c = v;
+      } catch {
+        c = null;
+      }
+    }
+    compactCache.set(i, c);
+    return c;
+  }
+
+  /** "^12" を上付きの回数にする */
+  function withPowers(text: string): Node[] {
+    return text.split(/\^(\d+)/).map((p, j) => (j % 2 === 0 ? document.createTextNode(p) : h('sup', {}, p)));
+  }
+
+  /** 「このステップ」の欄：長ければまとめた形を見せ、元の書き方はたたんでおく */
+  function drawStepText(i: number, st: Step, c: Compact | null) {
+    const cell = byId('b-text-cell');
+    const raw = rawText(st);
+    const rawDiv = h('div', { class: 'step-text' }, raw);
+    if (!c || !data) {
+      cell.replaceChildren(rawDiv);
+      return;
+    }
+    const isWorm = data.kind === 'worm';
+    const n = isWorm ? (st.letters?.length ?? 0) : raw.length;
+    const details = h(
+      'details',
+      {},
+      h('summary', {}, isWorm ? tr(`元の worm（${n} 文字）`, `The worm as it is (${n} letters)`) : tr(`元の括弧語（${n} 記号）`, `The bracket word as it is (${n} symbols)`)),
+      rawDiv,
+    );
+    details.open = rawOpen;
+    details.addEventListener('toggle', () => (rawOpen = details.open));
+    // toggle イベントは少し遅れて届くので、押した時点でも覚える（すぐにステップを動かしても開いたまま）
+    details.querySelector('summary')?.addEventListener('click', () => (rawOpen = !details.open));
+    const how = isWorm
+      ? tr('同じ部分が k 回続く所を (…)^k、1 文字なら 1^k と書いています。', 'A part repeated k times in a row is written (…)^k, a single letter 1^k.')
+      : tr('同じ文字の並びが k 回続く所を […]^k、1 文字なら (…)^k と書いています。', 'A run of letters repeated k times is written […]^k, a single letter (…)^k.');
+    cell.replaceChildren(h('div', { class: 'step-compact' }, ...withPowers(c.text)), h('div', { class: 'muted', style: 'font-size:12px;margin:2px 0 4px' }, how), details);
+  }
 
   /** ステップ i の式と順序数を、揃えた 2 行の数式にする。 */
-  function stepLatex(kind: string, i: number, st: Step): string {
+  function stepLatex(kind: string, i: number, formula: string | null | undefined, ordinalTex: string | null | undefined): string {
     const [name, ord] = kind === 'bracket' ? [`a_{${i}}`, `o^{*}(a_{${i}})`] : [`A_{${i}}`, `o(A_{${i}})`];
     const lines: string[] = [];
-    lines.push(`${name} &= ${st.latex ?? '\\cdots\\ \\text{(too long)}'}`);
-    if (st.ordinal_latex) lines.push(`${ord} &= ${st.ordinal_latex}`);
+    lines.push(`${name} &= ${formula ?? '\\cdots\\ \\text{(too long)}'}`);
+    if (ordinalTex) lines.push(`${ord} &= ${ordinalTex}`);
     return `\\[\n\\begin{aligned}\n${lines.join(' \\\\\n')}\n\\end{aligned}\n\\]`;
   }
 
@@ -119,44 +252,86 @@
   }
 
   function fillExamples() {
-    const box = byId('b-examples');
-    box.replaceChildren(h('span', {}, '例：'));
-    for (const x of EXAMPLES[kind.value]) {
-      const b = h('button', { type: 'button' }, x);
-      b.addEventListener('click', () => {
-        input.value = x;
-        run();
-      });
-      box.append(b);
-    }
+    examples(byId('b-examples'), input, EXAMPLES[kind.value], () => run());
   }
 
+  const playLabel = () => tr('▶ 再生', '▶ Play');
+  const pauseLabel = () => tr('❚❚ 停止', '❚❚ Pause');
+
   function lengthOf(st: Step): number {
-    return st.letters?.length ?? st.ranks?.length ?? st.size ?? 0;
+    return st.length_num ?? st.letters?.length ?? st.ranks?.length ?? st.size ?? 0;
+  }
+
+  /** worm の「このステップ」の欄：短ければそのまま、長ければまとめた形と、たたんだ元の worm */
+  function drawWormText(wv: WormView) {
+    const cell = byId('b-text-cell');
+    const n = wv.length;
+    const short = wv.plain !== null && wv.plain.split(' ').length < 16;
+    if (short || wv.text === '⊤') {
+      cell.replaceChildren(h('div', { class: 'step-text' }, wv.plain ?? wv.text));
+      return;
+    }
+    const raw =
+      wv.plain !== null
+        ? h('div', { class: 'step-text' }, wv.plain)
+        : h('div', { class: 'muted', style: 'font-size:12px' }, tr('長すぎるので、元の worm は出していません。', 'Too long to show the worm as it is.'));
+    const details = h('details', {}, h('summary', {}, tr(`元の worm（${fmtCount(n)} 文字）`, `The worm as it is (${fmtCount(n)} letters)`)), raw);
+    details.open = rawOpen;
+    details.addEventListener('toggle', () => (rawOpen = details.open));
+    details.querySelector('summary')?.addEventListener('click', () => (rawOpen = !details.open));
+    const how = tr(
+      '同じ部分が k 回続く所を (…)^k、1 文字なら 1^k と書いています（上の図では波括弧と ×k）。',
+      'A part repeated k times in a row is written (…)^k, a single letter 1^k (in the picture above: a brace with ×k).',
+    );
+    const more = wv.truncated ? [h('span', { class: 'muted' }, tr(' …（ここから先は省略）', ' … (the rest is omitted)'))] : [];
+    cell.replaceChildren(h('div', { class: 'step-compact' }, ...withPowers(wv.text), ...more), h('div', { class: 'muted', style: 'font-size:12px;margin:2px 0 4px' }, how), details);
   }
 
   function show(i: number) {
     if (!data) return;
     const st = data.steps[i];
     slider.value = String(i);
-    byId('b-pos').textContent = `STEP ${i}/${data.steps.length - 1}  LEN ${lengthOf(st)}`;
+    byId('b-pos').textContent = `STEP ${i}/${data.steps.length - 1}  LEN ${st.length !== undefined ? fmtCount(st.length) : lengthOf(st)}`;
     const barsBox = byId('b-bars');
+    // 新しい wasm の worm の battle：まとめたまま進めた worm を、見ているステップの分だけ取って描く
+    const wv = data.kind === 'worm' && !st.letters ? wormViewOf(i) : null;
+    if (wv) {
+      wormTree(barsBox, wv.tree, wormMax, tr(`${fmtCount(wv.length)} 文字`, `${fmtCount(wv.length)} letters`), wv.truncated);
+      drawWormText(wv);
+      const more = wv.ordinal_chars > wv.ordinal.length ? tr(`（全 ${fmtCount(wv.ordinal_chars)} 文字）`, ` (${fmtCount(wv.ordinal_chars)} characters in all)`) : '';
+      byId('b-ord').textContent = wv.ordinal + more;
+      stepTex = stepLatex(data.kind, i, wv.latex, wv.ordinal_latex);
+      drawMath(stepTex);
+      lengthChart(byId('b-chart'), data.steps.map(lengthOf), i, show);
+      return;
+    }
+    const compact = compactOf(i, st);
     if (data.kind === 'worm') {
       const ls = st.letters ?? [];
       const max = Math.max(1, ...data.steps.map((s) => Math.max(0, ...(s.letters ?? [0]))));
       bars(barsBox, ls, ls.map(String), max);
-      byId('b-text').textContent = ls.length ? ls.join(' ') : '⊤';
     } else if (data.kind === 'bracket') {
-      const rs = st.ranks ?? [];
-      bars(barsBox, rs, st.letter_ordinals ?? [], Math.max(1, ...rs));
-      byId('b-text').textContent = st.text ?? '';
+      // 括弧語は worm の棒ではなく、入れ子のブロックで描く（次のステップで縮む・複製される文字に色）。
+      // 長い語は、繰り返しの中身を 1 回分だけ描いて波括弧と ×k を付ける
+      if (compact?.parts) {
+        const k = st.ranks?.length ?? 0;
+        const label = tr(`${fmtCount(k)} 文字・深さ ${bracketDepth(st.text ?? '')}`, `${fmtCount(k)} letters, depth ${bracketDepth(st.text ?? '')}`);
+        nestTree(barsBox, compact.parts, bracketMax, label);
+      } else {
+        nest(barsBox, st.text ?? '', st.letter_ordinals ?? [], st.ranks ?? [], bracketMax);
+      }
     } else {
       barsBox.replaceChildren();
-      byId('b-text').textContent = st.text ?? '';
     }
+    drawStepText(i, st, compact);
     byId('b-ord').textContent =
-      st.ordinal ?? '（標準表記での o(A) は未計算。論文もこの対応は直接計算していない）';
-    stepTex = stepLatex(data.kind, i, st);
+      st.ordinal ??
+      tr(
+        '（標準表記での o(A) は未計算。論文もこの対応は直接計算していない）',
+        '(o(A) in standard notation is not computed; the paper does not compute this correspondence directly either)',
+      );
+    // 長い式は繰り返しでまとめた形で（それでも長すぎれば省略）
+    stepTex = stepLatex(data.kind, i, compact && compact.latex.length <= 3000 ? compact.latex : st.latex, st.ordinal_latex);
     drawMath(stepTex);
     lengthChart(byId('b-chart'), data.steps.map(lengthOf), i, show);
   }
@@ -164,42 +339,57 @@
   function stop() {
     if (timer !== undefined) window.clearInterval(timer);
     timer = undefined;
-    play.textContent = '▶ 再生';
+    play.textContent = playLabel();
   }
 
-  async function run() {
+  /** 実行して、ステップ `at` を表示する。 */
+  async function run(at = 0) {
+    ran = true;
     stop();
     status.classList.remove('clear');
-    setStatus(status, '計算中…');
+    setStatus(status, busyText());
     await nextFrame();
     try {
       const n = Math.min(2000, Math.max(1, Number(limit.value) || 200));
-      data = await call<BattleJson>((api) => api.battle(kind.value, input.value, n));
+      runInput = input.value;
+      data = await call<BattleJson>((api) => api.battle(kind.value, runInput, n));
+      if (data.kind !== 'rcbi') recordOrdinal(data.steps[0]?.ordinal, 'battle');
+      viewCache = new Map();
       const steps = data.steps.length - 1;
       const end = data.finished
-        ? `${steps} ステップで ⊤ に着きました。`
+        ? tr(`${steps} ステップで ⊤ に着きました。`, `Reached ⊤ in ${steps} steps.`)
         : data.stopped
-          ? `${steps} ステップ表示（${data.stopped}）。`
-          : `${steps} ステップで打ち切り（まだ ⊤ に着いていません）。`;
+          ? tr(`${steps} ステップ表示（${data.stopped}）。`, `Showing ${steps} steps (${data.stopped}).`)
+          : tr(`${steps} ステップで打ち切り（まだ ⊤ に着いていません）。`, `Stopped after ${steps} steps (⊤ not reached yet).`);
       setStatus(status, end);
       status.classList.toggle('clear', data.finished);
       slider.max = String(steps);
+      compactCache = new Map();
+      const first = data.kind === 'worm' && !data.steps[0]?.letters ? wormViewOf(0) : null;
+      wormMax = first ? Math.max(1, treeMax(first.tree)) : 1;
+      bracketMax = data.kind === 'bracket' ? Math.max(1, ...data.steps.map((s) => bracketDepth(s.text ?? ''))) : 1;
       const list = byId('b-list');
       list.replaceChildren(...data.steps.map((s) => h('li', {}, s.ordinal ?? s.text ?? '')));
       result.hidden = false;
       const t = data.latex_table;
       byId('b-tex').replaceChildren(
         texBlock({
-          title: '全ステップの表（LaTeX）',
+          title: tr('全ステップの表（LaTeX）', 'Table of all steps (LaTeX)'),
           code: t.code,
           render: 'manual',
           note:
-            t.rows < t.total
-              ? `先頭 ${t.rows} 行（全 ${t.total} 行）を表にしています（式が長くなったところで止めています）。`
-              : `${t.total} 行。`,
+            (t.rows < t.total
+              ? tr(
+                  `先頭 ${t.rows} 行（全 ${t.total} 行）を表にしています（式が長くなったところで止めています）。`,
+                  `The table shows the first ${t.rows} of ${t.total} rows (it stops where the formulas get long).`,
+                )
+              : tr(`${t.total} 行。`, `${t.total} rows.`)) +
+            (data.kind === 'rcbi'
+              ? ''
+              : tr('長い式は、同じ部分が k 回続く所を (…)^k でまとめて書いています。', ' Long formulas write a part repeated k times in a row as (…)^k.')),
         }).el,
       );
-      show(0);
+      show(Math.min(at, steps));
     } catch (e) {
       setStatus(status, e instanceof Error ? e.message : String(e), true);
     }
@@ -209,7 +399,7 @@
     input.value = EXAMPLES[kind.value][0];
     fillExamples();
   });
-  byId('b-run').addEventListener('click', run);
+  byId('b-run').addEventListener('click', () => run());
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') run();
   });
@@ -218,9 +408,9 @@
     const msg = byId('b-copy-msg');
     try {
       await navigator.clipboard.writeText(stepTex);
-      msg.textContent = 'コピーしました';
+      msg.textContent = tr('コピーしました', 'Copied');
     } catch {
-      msg.textContent = 'コピーできませんでした（下の表のコードを使ってください）';
+      msg.textContent = tr('コピーできませんでした（下の表のコードを使ってください）', 'Could not copy (use the table code below)');
     }
     window.setTimeout(() => (msg.textContent = ''), 3000);
   });
@@ -228,7 +418,7 @@
   byId('b-next').addEventListener('click', () => show(Math.min(Number(slider.max), Number(slider.value) + 1)));
   play.addEventListener('click', () => {
     if (timer !== undefined) return stop();
-    play.textContent = '❚❚ 停止';
+    play.textContent = pauseLabel();
     timer = window.setInterval(() => {
       const i = Number(slider.value);
       if (i >= Number(slider.max)) return stop();
@@ -236,4 +426,12 @@
     }, 450);
   });
   fillExamples();
+  play.textContent = playLabel();
+
+  // 言語の切り替え：例を並べ直し、結果を出していたら同じステップを開いたまま出し直す
+  onLang(() => {
+    fillExamples();
+    if (ran) run(Number(slider.value));
+    else play.textContent = playLabel();
+  });
 </script>

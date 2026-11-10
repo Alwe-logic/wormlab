@@ -141,11 +141,37 @@ header.site .sub {
   margin-top: 4px;
 }
 
-/* 右上のスコア欄：いちばん大きい順序数（RC_BI で届く Bachmann–Howard 順序数） */
-.hiscore {
+/* 右上のスコア欄：いちばん大きい記録（最初は RC_BI で届く Bachmann–Howard 順序数）。押すとハイスコア表 */
+button.hiscore {
   margin-left: auto;
   text-align: right;
   line-height: 1.5;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  box-shadow: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.hiscore:hover .value {
+  color: var(--neon);
+  text-shadow: var(--glow);
+}
+
+button.hiscore:active {
+  transform: none;
+}
+
+/* 1 位を破ったら、数を黄色に */
+button.hiscore.beaten .value {
+  color: var(--accent);
+  max-width: 40vw;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .hiscore .label {
@@ -222,6 +248,94 @@ header.site .sub {
   height: 20px;
 }
 
+/* 隠し機能：ロゴの頭としっぽはボタン（lib/logo.ts）。見た目はロゴのまま */
+.worm-logo button.logo-poke {
+  background: none;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: flex-end;
+  cursor: pointer;
+}
+
+.worm-logo button.logo-poke:active {
+  transform: translateY(2px);
+}
+
+.worm-logo button.logo-poke:focus-visible {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.worm-logo .logo-body {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+/* 繰り返しの節：中身と回数（0^27 など） */
+.worm-logo .seg.wide {
+  width: auto;
+  min-width: 20px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+
+.worm-logo .seg sup {
+  font-size: 7px;
+  margin-left: 1px;
+  vertical-align: 5px;
+  line-height: 0;
+}
+
+/* ロゴの worm の battle の様子 */
+.logo-hud[hidden] {
+  display: none;
+}
+
+.logo-hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.logo-hud .hud-o {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.logo-hud .hud-rem {
+  font-family: var(--font-dot);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.logo-hud .hud-clear {
+  color: var(--accent);
+  animation: blink 1s steps(2, jump-none) infinite;
+}
+
+.logo-hud button.hud-reset {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  padding: 3px 6px;
+  box-shadow: none;
+}
+
 @keyframes crawl {
   0%,
   100% {
@@ -232,13 +346,54 @@ header.site .sub {
   }
 }
 
+/* 英語で表示するときは、文を入れ替えるまで隠す（Base.astro・lib/i18n.ts） */
+html.i18n-pending body {
+  visibility: hidden;
+}
+
+/* タブと言語の切り替えの段 */
+.navrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 /* タブ：アーケードのメニュー。選んでいるものは黄色で、▶ が点滅 */
 nav.tabs {
   display: flex;
   gap: 4px 6px;
   overflow-x: auto;
-  margin-top: 14px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 言語の切り替え：1P / 2P を選ぶような小さなボタン。選んでいるものは黄色 */
+.lang-switch {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.lang-switch button {
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 6px 8px;
+  color: var(--text-secondary);
+  border-color: var(--neon-dim);
+  box-shadow: none;
+}
+
+.lang-switch button:active {
+  transform: none;
+}
+
+.lang-switch button[aria-pressed="true"] {
+  color: #000;
+  background: var(--accent);
+  border-color: var(--accent);
+  text-shadow: none;
 }
 
 nav.tabs a {
@@ -353,6 +508,12 @@ section.panel.active {
 .controls label {
   color: var(--text-secondary);
   font-size: 14px;
+  max-width: 100%;
+}
+
+/* 選択肢の文が長くても（英語の表示など）、カードからはみ出さない */
+select {
+  max-width: 100%;
 }
 
 input[type="text"],
@@ -531,6 +692,9 @@ button:disabled {
 table.kv {
   border-collapse: collapse;
   width: 100%;
+  /* 列の幅を中身で決めない（見出しの列は th の width、残りが値の列）。こうしないと、折り返せない
+     長い数式（MathJax の SVG）が表ごと押し広げて、カードの外にはみ出す。長い数式は .tex-inline の中で横に動かす */
+  table-layout: fixed;
 }
 
 table.kv th,
@@ -680,6 +844,222 @@ details > summary:hover {
   margin-right: 6px;
 }
 
+/* 表示の切り替え（証明図 / 入れ子の一覧、規則の体系）。選んでいるものは黄色 */
+.view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.view-switch button[aria-pressed="true"] {
+  color: #000;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 2px 2px 0 var(--neon-dim);
+  text-shadow: none;
+}
+
+.rule[title] {
+  cursor: help;
+}
+
+/* 規則の一覧（Rules.astro） */
+.rule-source {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+ul.rule-lang,
+ul.rule-notes {
+  margin: 0 0 12px;
+  padding-left: 1.3em;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+ul.rule-notes {
+  margin-top: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+h3.rule-group {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--accent);
+  margin: 16px 0 8px;
+}
+
+.rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 10px;
+}
+
+.rule-item {
+  border: 1px dashed var(--border);
+  background: #000;
+  padding: 10px 8px 8px;
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.rule-item.wide {
+  grid-column: 1 / -1;
+}
+
+.rule-diagram {
+  font-size: 14px;
+}
+
+.rule-cond,
+.rule-note {
+  font-size: 12px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.rule-note {
+  color: var(--text-muted);
+}
+
+.rule-actions {
+  margin-top: 14px;
+}
+
+/* 証明図（lib/prooftree.ts）：推論ごとに 2 列の grid。右の列は規則の名前の場所 */
+.pf-diagram {
+  margin: 4px 0 8px;
+}
+
+.pf-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pf-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pf-view {
+  overflow: auto;
+  max-height: 72vh;
+  border: 2px solid var(--border);
+  background: #000;
+  padding: 14px 16px;
+}
+
+.pf-tree {
+  display: inline-block;
+  min-width: 100%;
+  text-align: center;
+  font-family: var(--mono);
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.pf {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto auto;
+  vertical-align: bottom;
+  text-align: left;
+}
+
+.pf-prem {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0 1.6em;
+  padding: 0 0.2em;
+}
+
+.pf-line {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+  justify-self: stretch;
+  height: 0;
+  border-top: 1px solid var(--text-secondary);
+}
+
+.pf-rule {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+  font-size: 0.72em;
+  line-height: 1;
+  padding: 0 0.15em 0 0.35em;
+  color: var(--neon);
+  white-space: nowrap;
+}
+
+.pf-rule[title] {
+  cursor: help;
+}
+
+.pf-concl {
+  grid-column: 1;
+  grid-row: 3;
+  justify-self: center;
+  white-space: nowrap;
+  padding: 0.1em 0.25em;
+}
+
+/* 副条件（括弧語どうしの比較）の結論 */
+.pf-side-c {
+  color: var(--pellet);
+}
+
+/* 押すと畳める結論 */
+.pf-fold {
+  cursor: pointer;
+}
+
+.pf-fold:hover {
+  color: var(--neon);
+  text-shadow: var(--glow);
+}
+
+/* 畳んだ部分証明：⋮ と隠れているノードの数 */
+button.pf-more {
+  font-family: var(--mono);
+  font-size: 1em;
+  line-height: 1.1;
+  padding: 0 0.3em;
+  border: 1px dashed var(--neon-dim);
+  box-shadow: none;
+  color: var(--neon);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+button.pf-more:active {
+  transform: none;
+}
+
+.pf-more-n {
+  font-size: 0.7em;
+  color: var(--text-muted);
+}
+
+/* 規則の一覧の図式で、前提に置く式 */
+.pf-f {
+  white-space: nowrap;
+  padding: 0.1em 0.25em;
+}
+
 .proof-lines {
   font-family: var(--mono);
   font-size: 13px;
@@ -804,6 +1184,215 @@ pre.tex-code {
   white-space: nowrap;
 }
 
+/* battle の図（棒・入れ子のブロック・長さの推移）は幅 320px 以上で描くので、狭い画面では縮めて収める */
+#b-bars svg,
+#b-chart svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* まとめた worm の図が広いときは、縮めずに横にスクロールする */
+#b-bars svg.wide {
+  max-width: none;
+}
+
+.scroll-x {
+  overflow-x: auto;
+}
+
+/* 基本列の探検：押せる数（ボタンだが文字のように見せる。押すとその数へ降りる） */
+button.pick {
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: left;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px dashed transparent;
+  box-shadow: none;
+  padding: 1px 6px;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  /* 折り返した長い数でも、リストの番号が 1 行目にそろうように（inline-flex の基準線は 1 行目） */
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+button.pick:hover {
+  border-color: var(--neon-dim);
+  color: var(--neon);
+}
+
+button.pick:active {
+  transform: none;
+}
+
+ol.picks li {
+  margin: 1px 0;
+}
+
+/* たどった道（パンくず） */
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.crumbs .sep {
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+.crumbs button {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 2px 8px;
+  box-shadow: none;
+}
+
+.crumbs button[aria-current="true"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  text-shadow: none;
+}
+
+/* 演算の計算の過程：「= 式」と、その行で使った規則 */
+.calc-steps {
+  margin: 6px 0 0;
+  padding-left: 1.6em;
+}
+
+.calc-steps li {
+  margin: 8px 0;
+}
+
+.calc-steps .eq {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+.calc-steps .why {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* 式の標準形（Expr.astro）：書き方の変わらない段は薄く、ふだんは隠す */
+.expr-steps li.same {
+  opacity: 0.55;
+}
+
+.expr-steps.hide-same li.same {
+  display: none;
+}
+
+ul.calc-details {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 定義の一覧 */
+details.defs {
+  margin-top: 14px;
+}
+
+.def-item {
+  border-top: 1px dashed var(--border);
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+.def-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  color: var(--accent);
+}
+
+.def-sym {
+  color: var(--neon);
+  min-width: 5.5em;
+}
+
+.def-item ul {
+  margin: 4px 0;
+  padding-left: 1.3em;
+  overflow-wrap: anywhere;
+}
+
+.def-src {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* 表示する標準形の選択（NotationPicker.astro）と、その書き方で書けない数の印 */
+.nt-desc {
+  font-size: 13px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.nt-desc ul {
+  margin: 4px 0;
+  padding-left: 1.3em;
+  overflow-wrap: anywhere;
+}
+
+.nt-example {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.nf-fallback {
+  text-decoration: underline dotted var(--text-muted);
+  text-underline-offset: 3px;
+}
+
+.nf-fallback::after {
+  content: "*";
+  color: var(--text-muted);
+}
+
+.nf-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* 演算子の選択は狭く */
+select.op {
+  font-family: var(--mono);
+  width: 4.2em;
+}
+
+/* battle の長いステップを繰り返しでまとめた形。回数（上付き）は黄色 */
+.step-compact {
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.step-compact sup {
+  color: var(--accent);
+  font-size: 0.72em;
+  margin-left: 1px;
+}
+
 .step-text {
   font-family: var(--mono);
   overflow-wrap: anywhere;
@@ -838,11 +1427,167 @@ footer .credit {
   letter-spacing: 0.1em;
 }
 
+/* ハイスコア表（lib/hiscore.ts）：アーケードのランキング画面 */
+dialog.hiscore-dialog {
+  background: #000;
+  color: var(--text-primary);
+  border: 6px double var(--wall);
+  border-radius: 14px;
+  box-shadow: var(--glow-box);
+  padding: 20px 22px;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+
+dialog.hiscore-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.hs-title {
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  font-weight: 400;
+  text-align: center;
+  color: var(--critical);
+  letter-spacing: 0.12em;
+  margin: 0 0 16px;
+  text-shadow: 0 0 6px rgba(255, 77, 77, 0.6);
+}
+
+table.hs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.hs-table td {
+  padding: 5px 6px;
+  vertical-align: baseline;
+}
+
+.hs-table td.hs-rank {
+  width: 4.2em;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+}
+
+.hs-table td.hs-ord {
+  font-family: var(--mono);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.hs-table td.hs-name {
+  width: 7.5em;
+  text-align: right;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+}
+
+/* 行の色：1 位は黄色、あとはゴーストの色を順に */
+.hs-table tr:nth-child(1) td {
+  color: var(--accent);
+}
+
+.hs-table tr:nth-child(5n + 2) .hs-rank,
+.hs-table tr:nth-child(5n + 2) .hs-name {
+  color: var(--series-3);
+}
+
+.hs-table tr:nth-child(5n + 3) .hs-rank,
+.hs-table tr:nth-child(5n + 3) .hs-name {
+  color: var(--series-4);
+}
+
+.hs-table tr:nth-child(5n + 4) .hs-rank,
+.hs-table tr:nth-child(5n + 4) .hs-name {
+  color: var(--series-5);
+}
+
+.hs-table tr:nth-child(5n + 5) .hs-rank,
+.hs-table tr:nth-child(5n + 5) .hs-name {
+  color: var(--series-2);
+}
+
+.hs-table tr:nth-child(5n + 6) .hs-rank,
+.hs-table tr:nth-child(5n + 6) .hs-name {
+  color: var(--neon);
+}
+
+.hs-table tr.you td {
+  background: rgba(255, 230, 0, 0.06);
+}
+
+.hs-table tr.new td {
+  animation: blink 0.8s steps(2, jump-none) 4;
+}
+
+.hs-table tr.empty td {
+  color: var(--text-muted);
+}
+
+.hs-alias {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hs-table input {
+  width: 4.2em;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  text-transform: uppercase;
+  text-align: right;
+  background: #000;
+  color: var(--accent);
+  border: 1px dashed var(--neon-dim);
+  padding: 3px 4px;
+}
+
+.hs-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 14px 0 10px;
+}
+
+.hs-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* 記録が入ったときの知らせ（押すと表が開く） */
+button.hs-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 70;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #000;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(255, 230, 0, 0.6);
+  padding: 10px 14px;
+  max-width: calc(100vw - 32px);
+}
+
+button.hs-toast.bad {
+  font-family: var(--font-dot);
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  background: #000;
+  border-color: var(--critical);
+  box-shadow: 0 0 12px rgba(255, 77, 77, 0.5);
+}
+
 @media (max-width: 560px) {
   header.site h1 {
     font-size: 18px;
   }
-  .hiscore {
+  button.hiscore {
     margin-left: 0;
     text-align: left;
     display: flex;
@@ -859,6 +1604,8 @@ footer .credit {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .logo-hud .hud-clear,
+  .hs-table tr.new td,
   .worm-logo .seg,
   nav.tabs a[aria-current="page"]::before,
   .status.clear::before,

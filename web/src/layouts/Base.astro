@@ -20,6 +20,34 @@ const { title } = Astro.props;
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet" />
     <meta name="description" content="Beklemishev の worm、反射計算（RC・WC・BC・RC_BI）、順序数をブラウザで計算する" />
+    <!--
+      言語の先読み（lib/i18n.ts の detect と同じ決め方）。英語で表示するときは、日本語の文が一瞬
+      見えないように、applyStatic が入れ替えるまで画面を隠す（スクリプトが動かなくても 2 秒で出す）。
+    -->
+    <script is:inline>
+      (function () {
+        var l = null;
+        try {
+          l = localStorage.getItem('wormlab-lang');
+        } catch (e) {}
+        if (l !== 'ja' && l !== 'en') {
+          var ls = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+          l = ls.some(function (x) {
+            return x && x.toLowerCase().indexOf('ja') === 0;
+          })
+            ? 'ja'
+            : 'en';
+        }
+        if (l === 'en') {
+          var root = document.documentElement;
+          root.lang = 'en';
+          root.classList.add('i18n-pending');
+          setTimeout(function () {
+            root.classList.remove('i18n-pending');
+          }, 2000);
+        }
+      })();
+    </script>
   </head>
   <body>
     <slot />

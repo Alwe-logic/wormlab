@@ -1,23 +1,40 @@
 ---
 // 順序数電卓：順序数・worm・括弧語を相互に変換し、基本列や大小を調べる。
-// 下の段は RC_BI の式の比較と基本列。
+// いちばん上で、このタブに出る数をどの標準形で書くかを選ぶ（NotationPicker.astro・lib/notation.ts）。
+// その下に、基本列をたどる探検（Explore.astro）、演算（Arith.astro）、式の標準形（Expr.astro）、大小の比較、
+// RC_BI の式の比較と基本列。
+import Arith from './Arith.astro';
+import Explore from './Explore.astro';
+import Expr from './Expr.astro';
+import NotationPicker from './NotationPicker.astro';
+
+// 英語の文（中に要素があるものは data-en-html に入れる）
+const EN = {
+  lead:
+    "Rewrites ordinals in Veblen notation, as worms (with ordinal letters) and as bracket words. Whichever form you enter, you get the normal form of the same ordinal. Numbers beyond Γ₀ can be written with Ω and ψ (e.g. <span class='mono'>ψ(ε_(Ω + 1))</span>, the ψ of Worms and spiders) or as impredicative worms with Ω as a letter (e.g. <span class='mono'>((()))Ω</span>).",
+  rcbi:
+    "A &lt;¹₁ B means “B ⊢ ⟨1⟩₁A”. Closed formulas without ∇ are well-ordered by this order and reach up to the Bachmann–Howard ordinal. Syntax: <span class='mono'>&lt;1&gt;_2</span> = ⟨1⟩₂, <span class='mono'>&lt;2&gt;_3</span> = ⟨2⟩₃, <span class='mono'>D</span> = ↓, <span class='mono'>T</span> = ⊤.",
+};
 ---
 
 <section class="panel" data-panel="ordinal">
-  <p class="lead">
-    Γ₀ 未満の順序数を、Veblen 表記・worm（文字が順序数）・括弧語で書き換えます。どの書き方で入れても、
-    同じ順序数の標準形が出ます。
+  <p class="lead" data-en-html={EN.lead}>
+    順序数を、Veblen 表記・worm（文字が順序数）・括弧語で書き換えます。どの書き方で入れても、
+    同じ順序数の標準形が出ます。Γ₀ を超える数は Ω と ψ（<span class="mono">ψ(ε_(Ω + 1))</span> など、
+    Worms and spiders の ψ）か、Ω を文字に持つ impredicative worm（<span class="mono">((()))Ω</span> など）で書けます。
   </p>
+  <NotationPicker />
   <div class="card">
-    <h2>変換と基本列</h2>
+    <h2 data-en="Conversion and fundamental sequences">変換と基本列</h2>
     <div class="controls">
-      <select id="o-kind" aria-label="入力の種類">
-        <option value="ordinal">順序数</option>
+      <select id="o-kind" aria-label="入力の種類" data-en-aria-label="Input kind">
+        <option value="ordinal" data-en="ordinal">順序数</option>
         <option value="worm">worm</option>
-        <option value="bracket">括弧語</option>
+        <option value="bracket" data-en="bracket word">括弧語</option>
+        <option value="iworm">impredicative worm</option>
       </select>
-      <input type="text" id="o-input" value="ε_0" aria-label="入力" />
-      <button class="primary" id="o-run" type="button">計算</button>
+      <input type="text" id="o-input" value="ε_0" aria-label="入力" data-en-aria-label="Input" />
+      <button class="primary" id="o-run" type="button" data-en="Compute">計算</button>
     </div>
     <div class="examples" id="o-examples"></div>
     <div class="status" id="o-status" aria-live="polite"></div>
@@ -25,40 +42,46 @@
     <div id="o-tex"></div>
   </div>
 
+  <Explore />
+  <Arith />
+  <Expr />
+
   <div class="card">
-    <h2>大小の比較</h2>
+    <h2 data-en="Comparison">大小の比較</h2>
     <div class="controls">
-      <select id="c-kind-a" aria-label="左の種類">
-        <option value="ordinal">順序数</option><option value="worm" selected>worm</option><option value="bracket">括弧語</option>
+      <select id="c-kind-a" aria-label="左の種類" data-en-aria-label="Left kind">
+        <option value="ordinal" data-en="ordinal">順序数</option><option value="worm" selected>worm</option><option value="bracket" data-en="bracket word">括弧語</option><option value="iworm">impredicative worm</option>
       </select>
-      <input type="text" id="c-a" value="1 1" aria-label="左" />
-      <select id="c-kind-b" aria-label="右の種類">
-        <option value="ordinal">順序数</option><option value="worm">worm</option><option value="bracket">括弧語</option>
+      <input type="text" id="c-a" value="1 1" aria-label="左" data-en-aria-label="Left" />
+      <select id="c-kind-b" aria-label="右の種類" data-en-aria-label="Right kind">
+        <option value="ordinal" data-en="ordinal">順序数</option><option value="worm">worm</option><option value="bracket" data-en="bracket word">括弧語</option><option value="iworm">impredicative worm</option>
       </select>
-      <input type="text" id="c-b" value="ω^2" aria-label="右" />
-      <button class="primary" id="c-run" type="button">比較</button>
+      <input type="text" id="c-b" value="ω^2" aria-label="右" data-en-aria-label="Right" />
+      <button class="primary" id="c-run" type="button" data-en="Compare">比較</button>
     </div>
     <div class="verdict" id="c-out"></div>
     <div id="c-tex"></div>
   </div>
 
   <div class="card">
-    <h2>RC_BI の式（Pakhomov–Lazar）：順序 &lt;¹₁ と基本列</h2>
-    <p class="muted" style="margin:0 0 8px;font-size:13px">
+    <h2 data-en="RC_BI formulas (Pakhomov–Lazar): the order <¹₁ and fundamental sequences">
+      RC_BI の式（Pakhomov–Lazar）：順序 &lt;¹₁ と基本列
+    </h2>
+    <p class="muted" style="margin:0 0 8px;font-size:13px" data-en-html={EN.rcbi}>
       A &lt;¹₁ B は「B ⊢ ⟨1⟩₁A」。∇ を含まない閉じた式はこの順序で整列し、Bachmann–Howard 順序数までを表します。
       書き方：<span class="mono">&lt;1&gt;_2</span> = ⟨1⟩₂、<span class="mono">&lt;2&gt;_3</span> = ⟨2⟩₃、
       <span class="mono">D</span> = ↓、<span class="mono">T</span> = ⊤。
     </p>
     <div class="controls">
-      <input type="text" id="r-a" value="<1>_3<2>_3 T" aria-label="式 A" />
-      <input type="text" id="r-b" value="<2>_2<2>_3 T" aria-label="式 B" />
-      <button class="primary" id="r-cmp" type="button">比較</button>
+      <input type="text" id="r-a" value="<1>_3<2>_3 T" aria-label="式 A" data-en-aria-label="Formula A" />
+      <input type="text" id="r-b" value="<2>_2<2>_3 T" aria-label="式 B" data-en-aria-label="Formula B" />
+      <button class="primary" id="r-cmp" type="button" data-en="Compare">比較</button>
     </div>
     <div class="verdict" id="r-out"></div>
     <div id="r-tex"></div>
     <div class="controls" style="margin-top:10px">
-      <input type="text" id="r-f" value="<2>_2<2>_3 T" aria-label="基本列を見る式" />
-      <button id="r-fs" type="button">形と基本列</button>
+      <input type="text" id="r-f" value="<2>_2<2>_3 T" aria-label="基本列を見る式" data-en-aria-label="Formula to inspect" />
+      <button id="r-fs" type="button" data-en="Form and fundamental sequence">形と基本列</button>
     </div>
     <div class="status" id="r-status" aria-live="polite"></div>
     <div id="r-info"></div>
@@ -67,11 +90,23 @@
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { byId, h, setStatus } from '../lib/dom';
+  import { busyText, byId, examples, exploreOrdinal, h, setStatus } from '../lib/dom';
+  import { recordOrdinal } from '../lib/hiscore';
+  import { onLang, tr } from '../lib/i18n';
   import { texBlock } from '../lib/latex';
+  import { fallbackLine, notation, notationName, onNotation, prepare, show, shownEl } from '../lib/notation';
 
   interface Info {
-    input: { kind: string; text: string; normal_form?: string; is_normal?: boolean; depth?: number; worm?: string };
+    input: {
+      kind: string;
+      text: string;
+      normal_form?: string;
+      is_normal?: boolean;
+      depth?: number;
+      worm?: string;
+      /** impredicative worm の o(w^π) */
+      ordinal?: string;
+    };
     ordinal: string;
     is_zero: boolean;
     is_limit: boolean;
@@ -79,8 +114,13 @@
     below_epsilon0: boolean;
     worm: string;
     worm_finite: string | null;
-    bracket: string;
-    bracket_depth: number;
+    /** Γ0 以上（Ω・ψ を含む数）では null */
+    bracket: string | null;
+    bracket_depth: number | null;
+    predicative: boolean;
+    /** 値がこの数になる impredicative worm（ψ(e_{Ω+1}1) 未満の可算な数だけ） */
+    iworm: string | null;
+    countable: boolean;
     fundamental: string[];
     worm_fundamental: string[];
     hardy: { n: string; value: string | null }[];
@@ -89,9 +129,10 @@
   }
 
   const EXAMPLES: Record<string, string[]> = {
-    ordinal: ['ε_0', 'ω^ω + 3', 'ε_1', 'φ(2, 0)', 'φ(ω, 0)', 'φ(ε_0, 0)'],
+    ordinal: ['ε_0', 'ω^ω + 3', 'ε_1', 'φ(2, 0)', 'φ(ω, 0)', 'φ(ε_0, 0)', 'ψ(0)', 'ψ(Ω)', 'ψ(ε_(Ω + 1))'],
     worm: ['2 0 1', '1 1 1', '<ω><ω>', '<ε_0 + 1><0>'],
     bracket: ['((()))', '(())()', '((())(()))', '(((())))'],
+    iworm: ['Ω', '()Ω', 'Ω()Ω', '((()))Ω', '(Ω)Ω', 'ΩΩ'],
   };
 
   const kind = byId<HTMLSelectElement>('o-kind');
@@ -103,37 +144,116 @@
     return h('tr', {}, h('th', {}, label), h('td', {}, value));
   }
 
+  /** 数の列（今の標準形で。書けない数があれば、その理由を下に） */
   function seq(items: string[]) {
-    return h('ol', { class: 'seq', start: '0' }, ...items.map((x) => h('li', {}, x)));
+    return h(
+      'div',
+      {},
+      h('ol', { class: 'seq', start: '0' }, ...items.map((x) => h('li', {}, shownEl(x)))),
+      fallbackLine(items),
+    );
   }
 
+  /** 実行したことのある計算（言語を切り替えたら、その言語で出し直す） */
+  const shown = new Set<() => void>();
+
   async function run() {
-    setStatus(status, '計算中…');
+    shown.add(run);
+    setStatus(status, busyText());
     await nextFrame();
     try {
       const r = await call<Info>((api) => api.ordinal_info(kind.value, input.value));
       setStatus(status, '');
-      const rows = [row('入力', r.input.text)];
-      if (r.input.kind === 'worm' && r.input.normal_form) rows.push(row('入力の標準形', r.input.normal_form));
-      if (r.input.kind === 'bracket') {
-        rows.push(row('翻訳 a*', r.input.worm ?? ''));
-        rows.push(row('入力の正規形', `${r.input.normal_form}${r.input.is_normal ? '（この語自身が正規形）' : ''}`));
+      recordOrdinal(r.ordinal, 'calc');
+      const rows = [row(tr('入力', 'Input'), r.input.text)];
+      if (r.input.kind === 'worm' && r.input.normal_form) {
+        rows.push(row(tr('入力の標準形', 'Normal form of the input'), r.input.normal_form));
       }
-      rows.push(row('順序数', r.ordinal));
-      rows.push(row('種類', r.is_zero ? '0' : r.is_limit ? '極限順序数' : '後続順序数'));
-      if (r.worm_finite) rows.push(row('worm（自然数の文字）', r.worm_finite || '⊤'));
-      rows.push(row('worm（順序数の文字）', r.worm || '⊤'));
-      rows.push(row('括弧語（正規形）', `${r.bracket}　（入れ子の深さ ${r.bracket_depth}）`));
-      if (r.fundamental.length) rows.push(row('標準の基本列 α[0..5]', seq(r.fundamental)));
-      if (r.worm_fundamental.length) rows.push(row('worm が作る列 α{0..5}', seq(r.worm_fundamental)));
+      if (r.input.kind === 'bracket') {
+        rows.push(row(tr('翻訳 a*', 'Translation a*'), r.input.worm ?? ''));
+        rows.push(
+          row(
+            tr('入力の正規形', 'Normal form of the input'),
+            `${r.input.normal_form}${r.input.is_normal ? tr('（この語自身が正規形）', ' (the word itself is in normal form)') : ''}`,
+          ),
+        );
+      }
+      if (r.input.kind === 'iworm') {
+        rows.push(row(tr('翻訳 w^π', 'Translation w^π'), r.input.worm ?? ''));
+        rows.push(
+          row(
+            'o(w^π)',
+            `${r.input.ordinal}${tr(
+              '（値 p(w) は、可算ならこれ、Ω 以上なら ψ(−Ω + o(w^π))）',
+              ' (the value p(w) is this if countable, and ψ(−Ω + o(w^π)) if ≥ Ω)',
+            )}`,
+          ),
+        );
+      }
+      // 順序数：選んだ標準形で（Veblen 形以外を選んでいれば、Veblen 形も並べる）
+      prepare([r.ordinal, ...r.fundamental, ...r.worm_fundamental]);
+      if (notation() === 'veblen') {
+        rows.push(row(tr('順序数', 'Ordinal'), r.ordinal));
+      } else {
+        rows.push(
+          row(
+            tr(`順序数（${notationName()}）`, `Ordinal (${notationName()})`),
+            h('div', {}, shownEl(r.ordinal, 'div', 'step-text'), fallbackLine([r.ordinal])),
+          ),
+        );
+        rows.push(row(tr('順序数（Veblen 形）', 'Ordinal (Veblen form)'), r.ordinal));
+      }
+      rows.push(
+        row(
+          tr('種類', 'Kind'),
+          r.is_zero ? '0' : r.is_limit ? tr('極限順序数', 'limit ordinal') : tr('後続順序数', 'successor ordinal'),
+        ),
+      );
+      if (r.worm_finite) rows.push(row(tr('worm（自然数の文字）', 'worm (natural-number letters)'), r.worm_finite || '⊤'));
+      rows.push(row(tr('worm（順序数の文字）', 'worm (ordinal letters)'), r.worm || '⊤'));
+      if (r.iworm !== null && r.input.kind !== 'iworm') rows.push(row('impredicative worm', r.iworm || '⊤'));
+      if (r.input.kind === 'iworm' && r.iworm !== r.input.text) {
+        rows.push(row(tr('impredicative worm の標準形', 'impredicative worm (normal form)'), r.iworm || '⊤'));
+      }
+      if (r.bracket !== null) {
+        rows.push(
+          row(
+            tr('括弧語（正規形）', 'bracket word (normal form)'),
+            tr(`${r.bracket}　（入れ子の深さ ${r.bracket_depth}）`, `${r.bracket}  (nesting depth ${r.bracket_depth})`),
+          ),
+        );
+      } else {
+        const c = r.countable ? tr('可算', 'countable') : tr('非可算', 'uncountable');
+        rows.push(
+          row(
+            tr('括弧語', 'bracket word'),
+            tr(`Γ₀ 以上なので括弧語では表せない（${c}）`, `cannot be written as a bracket word, since it is ≥ Γ₀ (${c})`),
+          ),
+        );
+      }
+      if (r.fundamental.length) {
+        // 基本列の探検（下のカード）に、この数から始めてもらう
+        const more = h('button', { type: 'button', class: 'small' }, tr('この数の基本列をたどる ↓', 'Explore its fundamental sequences ↓'));
+        more.addEventListener('click', () => exploreOrdinal(r.ordinal));
+        rows.push(row(tr('標準の基本列 α[0..5]', 'Standard fundamental sequence α[0..5]'), h('div', {}, seq(r.fundamental), more)));
+      }
+      if (r.worm_fundamental.length) {
+        rows.push(row(tr('worm が作る列 α{0..5}', 'Sequence given by the worm α{0..5}'), seq(r.worm_fundamental)));
+      }
       if (r.hardy.length) {
         rows.push(
           row(
-            'Hardy 関数',
+            tr('Hardy 関数', 'Hardy function'),
             h(
               'div',
               {},
-              ...r.hardy.map((x) => h('div', {}, `H_α(${x.n}) = ${x.value ?? '大きすぎて打ち切り'}`)),
+              ...r.hardy.map((x) => {
+                // 値は多倍長：ちょうどの値（60 桁を超えたら 1.23×10^k の形）か「2^k を超える」などの下界。
+                // 下界の文は日本語なら「… 以上」、英語なら "at least …" や "greater than …"（数字で始まらない）
+                const v = x.value ?? tr('計算できない', 'cannot be computed');
+                const exact = /^[0-9]/.test(v) && !v.includes('以上');
+                return h('div', {}, exact ? `H_α(${x.n}) = ${v}` : `H_α(${x.n})${tr('：', ': ')}${v}`);
+              }),
             ),
           ),
         );
@@ -142,9 +262,12 @@
       table.hidden = false;
       byId('o-tex').replaceChildren(
         texBlock({
-          title: 'LaTeX（書き換え・基本列・Hardy 関数）',
+          title: tr('LaTeX（書き換え・基本列・Hardy 関数）', 'LaTeX (rewritings, fundamental sequences, Hardy function)'),
           code: r.latex,
-          note: '\\begin{align*} は amsmath。worm は ⟨α⟩…⊤、括弧語の順序数は o^*(a) と書いています。',
+          note: tr(
+            '\\begin{align*} は amsmath。worm は ⟨α⟩…⊤、括弧語の順序数は o^*(a) と書いています。',
+            '\\begin{align*} needs amsmath. Worms are written ⟨α⟩…⊤, and the ordinal of a bracket word as o^*(a).',
+          ),
         }).el,
       );
     } catch (e) {
@@ -155,16 +278,7 @@
   }
 
   function fillExamples() {
-    const box = byId('o-examples');
-    box.replaceChildren(h('span', {}, '例：'));
-    for (const x of EXAMPLES[kind.value]) {
-      const b = h('button', { type: 'button' }, x);
-      b.addEventListener('click', () => {
-        input.value = x;
-        run();
-      });
-      box.append(b);
-    }
+    examples(byId('o-examples'), input, EXAMPLES[kind.value], run);
   }
 
   kind.addEventListener('change', () => {
@@ -178,7 +292,8 @@
   fillExamples();
 
   // 比較
-  byId('c-run').addEventListener('click', async () => {
+  async function compare() {
+    shown.add(compare);
     const out = byId('c-out');
     try {
       const r = await call<{ a: string; b: string; relation: string; latex: string }>((api) =>
@@ -189,36 +304,45 @@
           byId<HTMLInputElement>('c-b').value,
         ),
       );
-      out.textContent = `${r.a}  ${r.relation}  ${r.b}`;
+      prepare([r.a, r.b]);
+      out.replaceChildren(`${show(r.a)}  ${r.relation}  ${show(r.b)}`);
+      const note = fallbackLine([r.a, r.b]);
+      if (note) out.append(note);
       byId('c-tex').replaceChildren(texBlock({ title: 'LaTeX', code: r.latex }).el);
     } catch (e) {
       out.textContent = e instanceof Error ? e.message : String(e);
       byId('c-tex').replaceChildren();
     }
-  });
+  }
+  byId('c-run').addEventListener('click', compare);
 
   // RC_BI
-  byId('r-cmp').addEventListener('click', async () => {
+  async function rcbiCompare() {
+    shown.add(rcbiCompare);
     const out = byId('r-out');
-    out.textContent = '計算中…';
+    out.textContent = busyText();
     await nextFrame();
     try {
       const r = await call<{ a: string; b: string; relation: string | null; latex: string | null }>((api) =>
         api.rcbi_compare(byId<HTMLInputElement>('r-a').value, byId<HTMLInputElement>('r-b').value),
       );
-      const rel = r.relation ? `${r.relation}¹₁` : '?（比較できない：Thm 4.11 に反する）';
+      const rel = r.relation
+        ? `${r.relation}¹₁`
+        : tr('?（比較できない：Thm 4.11 に反する）', '? (incomparable: this contradicts Thm 4.11)');
       out.textContent = `${r.a}  ${rel}  ${r.b}`;
       byId('r-tex').replaceChildren(r.latex ? texBlock({ title: 'LaTeX', code: r.latex }).el : '');
     } catch (e) {
       out.textContent = e instanceof Error ? e.message : String(e);
       byId('r-tex').replaceChildren();
     }
-  });
+  }
+  byId('r-cmp').addEventListener('click', rcbiCompare);
 
-  byId('r-fs').addEventListener('click', async () => {
+  async function rcbiInfo() {
+    shown.add(rcbiInfo);
     const st = byId('r-status');
     const box = byId('r-info');
-    setStatus(st, '計算中…');
+    setStatus(st, busyText());
     await nextFrame();
     try {
       const r = await call<{
@@ -229,21 +353,41 @@
         latex: string;
       }>((api) => api.rcbi_info(byId<HTMLInputElement>('r-f').value, 5));
       setStatus(st, '');
-      const form = r.form === 'zero' ? '零（⊤ と ≡¹₁）' : r.form === 'successor' ? '後続形' : '極限形';
-      const rows = [row('式', r.formula), row('形', form)];
-      if (r.predecessor) rows.push(row('直前', r.predecessor));
+      const form =
+        r.form === 'zero'
+          ? tr('零（⊤ と ≡¹₁）', 'zero (≡¹₁ ⊤)')
+          : r.form === 'successor'
+            ? tr('後続形', 'successor form')
+            : tr('極限形', 'limit form');
+      const rows = [row(tr('式', 'Formula'), r.formula), row(tr('形', 'Form'), form)];
+      if (r.predecessor) rows.push(row(tr('直前', 'Predecessor'), r.predecessor));
       if (r.approximations.length) {
         rows.push(
-          row('基本列 (A)_1..5', h('ol', { class: 'seq' }, ...r.approximations.map((x) => h('li', {}, x)))),
+          row(
+            tr('基本列 (A)_1..5', 'Fundamental sequence (A)_1..5'),
+            h('ol', { class: 'seq' }, ...r.approximations.map((x) => h('li', {}, x))),
+          ),
         );
       }
       box.replaceChildren(
         h('table', { class: 'kv' }, ...rows),
-        texBlock({ title: 'LaTeX（形と基本列）', code: r.latex }).el,
+        texBlock({ title: tr('LaTeX（形と基本列）', 'LaTeX (form and fundamental sequence)'), code: r.latex }).el,
       );
     } catch (e) {
       setStatus(st, e instanceof Error ? e.message : String(e), true);
       box.replaceChildren();
     }
+  }
+  byId('r-fs').addEventListener('click', rcbiInfo);
+
+  // 言語の切り替え：例を並べ直し、出している結果をその言語で出し直す
+  onLang(() => {
+    fillExamples();
+    for (const f of shown) f();
+  });
+  // 標準形の切り替え：順序数を出している結果（変換・比較）を出し直す
+  onNotation(() => {
+    if (shown.has(run)) run();
+    if (shown.has(compare)) compare();
   });
 </script>
