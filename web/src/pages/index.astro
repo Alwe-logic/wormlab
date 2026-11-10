@@ -40,9 +40,9 @@ const tabs = [
   { id: 'battle', label: 'battle', en: 'battle' },
   { id: 'ordinal', label: '順序数電卓', en: 'ordinals' },
   { id: 'proof', label: '証明', en: 'proofs' },
-  { id: 'rules', label: '規則', en: 'rules' },
   { id: 'model', label: 'Kripke モデル', en: 'Kripke models' },
-  { id: 'defs', label: '定義', en: 'definitions' },
+  // 推論規則（#rules）と定義（#defs）は 1 つのタブ。中で切り替える
+  { id: 'rules', label: '規則と定義', en: 'rules & definitions' },
 ];
 ---
 
@@ -69,9 +69,7 @@ const tabs = [
         </span>
         <div class="title">
           <h1>WORMLAB</h1>
-          <span class="sub" data-en="Beklemishev's worms, reflection calculi and ordinals, computed in your browser"
-            >Beklemishev の worm・反射計算・順序数を、ブラウザの中で計算する</span
-          >
+          <span class="sub" data-en="Computing Beklemishev's worms">Beklemishev の worm を計算する</span>
         </div>
         <button
           type="button"
@@ -151,13 +149,34 @@ const tabs = [
   markLang();
 
   // タブの切り替え（URL の #battle などで選ぶ）
+  /** 狭い画面ではタブの列が横にスクロールするので、選んだタブが隠れていれば列の中央に寄せる（ページは動かさない） */
+  function showInBar(a: HTMLElement) {
+    const bar = a.parentElement;
+    if (!bar) return;
+    const r = a.getBoundingClientRect();
+    const b = bar.getBoundingClientRect();
+    if (r.left < b.left || r.right > b.right) bar.scrollLeft += r.left - b.left - (b.width - r.width) / 2;
+  }
+
+  /** 1 つのタブの中で切り替える画面（推論規則 #rules と定義 #defs は「規則と定義」のタブ） */
+  const TAB_OF: Record<string, string> = { defs: 'rules' };
   function select() {
     const id = location.hash.slice(1) || 'battle';
+    const tab = TAB_OF[id] ?? id;
     document.querySelectorAll<HTMLElement>('section.panel').forEach((p) => {
       p.classList.toggle('active', p.dataset.panel === id);
     });
     document.querySelectorAll<HTMLAnchorElement>('nav.tabs a').forEach((a) => {
-      if (a.dataset.tab === id) a.setAttribute('aria-current', 'page');
+      if (a.dataset.tab === tab) {
+        a.setAttribute('aria-current', 'page');
+        // タブを押し直したときは、最後に見ていた側（推論規則か定義）を開く
+        a.setAttribute('href', `#${id}`);
+        showInBar(a);
+      } else a.removeAttribute('aria-current');
+    });
+    // 「規則と定義」の中の切り替え（Rules.astro・Glossary.astro の nav.subtabs）
+    document.querySelectorAll<HTMLAnchorElement>('nav.subtabs a').forEach((a) => {
+      if (a.getAttribute('href') === `#${id}`) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });
   }

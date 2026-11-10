@@ -45,7 +45,7 @@ const EN = {
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { busyText, byId, exploreOrdinal, h, setStatus } from '../lib/dom';
+  import { busyText, byId, examples, exploreOrdinal, h, setStatus } from '../lib/dom';
   import { recordOrdinal } from '../lib/hiscore';
   import { onLang, tr } from '../lib/i18n';
   import { texBlock } from '../lib/latex';
@@ -92,6 +92,14 @@ const EN = {
     'ψ(Ω + ψ(Ω·2 + 1))',
     'ψ(Ω^Ω)',
     '(ω + 1)^ω + φ(Ω, 0)',
+    'e(ω)',
+    'e^2(1)',
+    '1 + ω + ω^2',
+    'ε_ω^2',
+    'φ(ω, 0)·2 + ε_0',
+    'ψ(ψ(Ω))',
+    'e^(ε_0)(1)',
+    'φ(0, φ(1, 0)) + 2 + ω',
   ];
 
   const input = byId<HTMLInputElement>('nf-input');
@@ -102,16 +110,7 @@ const EN = {
   let showSame = false;
 
   function fillExamples() {
-    const ex = byId('nf-examples');
-    ex.replaceChildren(h('span', {}, tr('例：', 'e.g.')));
-    for (const e of EXAMPLES) {
-      const b = h('button', { type: 'button' }, e);
-      b.addEventListener('click', () => {
-        input.value = e;
-        run();
-      });
-      ex.append(b);
-    }
+    examples(byId('nf-examples'), input, EXAMPLES, run);
   }
 
   function stepItem(s: ExprStep): HTMLElement {

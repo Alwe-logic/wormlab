@@ -77,7 +77,7 @@ export function applyStatic(root: ParentNode = document): void {
     desc.setAttribute(
       'content',
       tr(
-        'Beklemishev の worm、反射計算（RC・WC・BC・RC_BI）、順序数をブラウザで計算する',
+        'Beklemishev の worm、反映計算（RC・WC・BC・RC_BI）、順序数をブラウザで計算する',
         "Compute Beklemishev's worms, reflection calculi (RC, WC, BC, RC_BI) and ordinals in the browser",
       ),
     );

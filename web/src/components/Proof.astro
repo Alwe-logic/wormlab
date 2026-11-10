@@ -22,7 +22,7 @@
       </select>
       <input type="text" id="p-input" value="<1>p & <0>q |- <1>(p & <0>q)" aria-label="シーケント" data-en-aria-label="Sequent" />
       <button class="primary" id="p-run" type="button" data-en="Decide">判定</button>
-      <button id="p-rules" type="button" data-en="Rules of this system" title="この体系の公理と規則の一覧（規則のタブ）" data-en-title="Axioms and rules of this system (the rules tab)">この体系の規則</button>
+      <button id="p-rules" type="button" data-en="Rules of this system" title="この体系の公理と規則の一覧（「規則と定義」のタブ）" data-en-title="Axioms and rules of this system (the rules & definitions tab)">この体系の規則</button>
     </div>
     <div class="examples" id="p-examples"></div>
     <div class="def-links">
@@ -63,11 +63,21 @@
   }
 
   const EXAMPLES: Record<string, string[]> = {
-    rc: ['<1>p & <0>q |- <1>(p & <0>q)', '<2>p |- <0><1>p', '<ω+1>p & <ω>q |- <ω+1>(p & <ω>q)', '<0>p |- <1>p'],
-    wc: ['1 1 |- 0 1 0 1', '2 0 1 |- 1 0 1', '<ω><ω> |- <0><ω><0>', '1 |- 2'],
-    bc: ['((()))p |- ()(())p', '((((())))) |- ()(((())))', '((())())p |- ((()))p', '()p |- (())p'],
-    bwc: ['((())) |- ()(())', '(((()))) |- ()((()))', '((())()) |- ((()))', '() |- (())'],
-    rcbi: ['<2>_2 T |- <1> D T', '<2>_2<2>_3 T |- <1>(<1>_3<2>_3 T)', 'D T |- <2>_2 T'],
+    // 最初の 6 個が見えていて、残りは「もっと」で開く
+    rc: [
+      '<1>p & <0>q |- <1>(p & <0>q)', '<2>p |- <0><1>p', '<ω+1>p & <ω>q |- <ω+1>(p & <ω>q)', '<0>p |- <1>p',
+      '<1><1>p |- <1>p', '<1>p |- <0>p', '<2>p & <1>q |- <2>(p & <1>q)', '<1>p & <1>q |- <1>(p & q)', '<ε_0>p |- <ω>p',
+    ],
+    wc: ['1 1 |- 0 1 0 1', '2 0 1 |- 1 0 1', '<ω><ω> |- <0><ω><0>', '1 |- 2', '2 |- 1 1 1', '1 0 1 |- 1 1', '<ω> |- <2>', '3 |- 2 0 2'],
+    bc: [
+      '((()))p |- ()(())p', '((((())))) |- ()(((())))', '((())())p |- ((()))p', '()p |- (())p',
+      '(())p |- ()p', '((()))p & (())q |- ((()))(p & (())q)', '(()())p |- (())(())p', '(((())))p |- ((()))p',
+    ],
+    bwc: ['((())) |- ()(())', '(((()))) |- ()((()))', '((())()) |- ((()))', '() |- (())', '(()) |- ()()', '((())) |- (())(())', '(()()) |- (())(())', '(()) |- ()'],
+    rcbi: [
+      '<2>_2 T |- <1> D T', '<2>_2<2>_3 T |- <1>(<1>_3<2>_3 T)', 'D T |- <2>_2 T',
+      '<1>_2 T |- <1>_1 T', 'D T |- <1>_w T', '<2>_2 <1>_2 T |- <1>_2 T', '<1>_2 T |- D T', '<2>_3 T |- <2>_2 D T',
+    ],
   };
   const NOTES: Record<string, () => string> = {
     rc: () =>

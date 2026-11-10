@@ -4,6 +4,10 @@
 ---
 
 <section class="panel" data-panel="rules">
+  <nav class="subtabs" aria-label="規則と定義" data-en-aria-label="Rules and definitions">
+    <a href="#rules" data-en="Inference rules">推論規則</a>
+    <a href="#defs" data-en="Definitions">定義</a>
+  </nav>
   <p
     class="lead"
     data-en="The axioms and rules of each system, drawn like the proof diagrams: premises above the line, the conclusion below, the rule name to the right. The names are the ones used in the derivations of the proofs tab (hover over a rule name in a proof diagram to see its form)."
@@ -107,7 +111,8 @@
       setStatus(status, '');
       render(systems);
     } catch (e) {
-      setStatus(status, e instanceof Error ? e.message : String(e), true);
+      // 読み込めないと一覧が空のままなので、エラーは消さずに残す
+      setStatus(status, e instanceof Error ? e.message : String(e), true, true);
     }
   }
 

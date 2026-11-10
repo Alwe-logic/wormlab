@@ -637,6 +637,12 @@ button:disabled {
   color: var(--critical);
 }
 
+/* エラーの表示を消すとき（lib/dom.ts の setStatus） */
+.status.fading {
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
 /* 計算中：小さな worm が伸び縮みしながら進む */
 .status.busy::before {
   content: "";
@@ -1338,6 +1344,35 @@ details.defs {
   overflow-wrap: anywhere;
 }
 
+/* 「規則と定義」のタブの中の切り替え（推論規則 #rules と定義 #defs） */
+nav.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+nav.subtabs a {
+  color: var(--neon);
+  text-decoration: none;
+  border: 2px solid var(--neon-dim);
+  box-shadow: 3px 3px 0 var(--neon-dim);
+  padding: 6px 14px;
+  font-size: 14px;
+}
+
+nav.subtabs a:hover {
+  border-color: var(--neon);
+  text-shadow: var(--glow);
+}
+
+nav.subtabs a[aria-current="page"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  text-shadow: none;
+}
+
 /* 定義のタブ（Glossary.astro） */
 .gl-index {
   display: grid;
@@ -1442,12 +1477,97 @@ details.defs {
   background: var(--surface-2);
 }
 
-.gl-ex ul {
-  margin: 4px 0 0;
-  padding-left: 1.2em;
-  font-family: var(--mono);
+/* 場合ごとの例：左に場合（規則の式）、右にその例 */
+.gl-cases {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 4px 16px;
+  margin: 6px 0 0;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.gl-cases dt {
+  color: var(--text-muted);
+}
+
+.gl-cases dd {
+  margin: 0;
+  font-family: var(--mono);
+}
+
+@media (max-width: 640px) {
+  .gl-cases {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .gl-cases dd {
+    padding-left: 1em;
+    margin-bottom: 6px;
+  }
+}
+
+/* 定義のタブの図（worm の基本列 A{n}） */
+.gl-fig {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+}
+
+.gl-fig .controls input[type="text"] {
+  max-width: 14em;
+}
+
+.gl-fig-n {
+  align-items: center;
+}
+
+.gl-fig-lines {
+  margin: 6px 0;
+  padding-left: 1.2em;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.gl-fig-chart svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* 同じ場合のほかの例（もっと見る） */
+.gl-more {
+  margin-top: 2px;
+}
+
+.gl-more summary {
+  cursor: pointer;
+  font-family: var(--sans, inherit);
+  font-size: 12px;
+  color: var(--neon);
+  width: fit-content;
+}
+
+.gl-more ul {
+  margin: 4px 0 2px;
+  padding-left: 1.2em;
+}
+
+.gl-more li + li {
+  margin-top: 2px;
+}
+
+/* 例のボタンの「もっと」 */
+.examples .ex-more {
+  border-style: dashed;
+}
+
+/* 一般の場合・特殊な場合のリンクは、関連より目立たせる */
+.gl-general .gl-label,
+.gl-special .gl-label {
+  color: var(--accent);
 }
 
 .gl-related {

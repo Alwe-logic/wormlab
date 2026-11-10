@@ -234,8 +234,8 @@ function render(focus?: number): void {
       'p',
       { class: 'hs-note' },
       tr(
-        '理論の行は Π¹₁ 証明論的順序数（RCA₀・PA 以外は RC_BI の論文 §6 の値）。PRA や EFA のような 1 階の弱い理論は、Π¹₁ と Π⁰₂ のどちらの順序数かで値が変わるので入れていません。順序数電卓・演算・式の標準形・battle で計算した可算な順序数が、大きければ表に入ります（このブラウザにだけ保存）。1 位を超えると右上の HI-ORDINAL も変わります。',
-        'Theory rows show Π¹₁ proof-theoretic ordinals (all but RCA₀ and PA are the values in §6 of the RC_BI paper). Weak first-order theories such as PRA and EFA are left out, since their ordinal depends on whether it is the Π¹₁ or the Π⁰₂ one. Countable ordinals you compute in the calculator, arithmetic, expressions or battle enter the table if they are large enough (saved in this browser only). Beat the 1st place and the HI-ORDINAL changes too.',
+        '理論の行は Π¹₁ 証明論的順序数（RCA₀・PA 以外は RC_BI の論文 §6 の値）。順序数電卓・演算・式の標準形・battle で計算した可算な順序数が、大きければ表に入ります（このブラウザにだけ保存）。1 位を超えると右上の HI-ORDINAL も変わります。',
+        'Theory rows show Π¹₁ proof-theoretic ordinals (all but RCA₀ and PA are the values in §6 of the RC_BI paper). Countable ordinals you compute in the calculator, arithmetic, expressions or battle enter the table if they are large enough (saved in this browser only). Beat the 1st place and the HI-ORDINAL changes too.',
       ),
     ),
     h('div', { class: 'hs-actions' }, close, table.some((e) => !e.theory) ? clear : null),

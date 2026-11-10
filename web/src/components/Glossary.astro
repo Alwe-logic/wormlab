@@ -1,16 +1,21 @@
 ---
-// 定義のタブ：wormlab で使うゲーム・順序数上の関数・表記と順序数の対応・体系の意味論の定義を、分類ごとに並べる。
+// 「規則と定義」のタブの定義の側（#defs）：wormlab で使うゲーム・順序数上の関数・表記と順序数の対応・体系の意味論の定義を、分類ごとに並べる。
 // 中身は Rust（wormlab-core/src/glossary.rs、wasm の glossary）が作る。「計算した例」はその場で実装を呼んで作ったもの。
 // ほかのタブの「定義」のボタン（data-def="鍵"）からは、dom.ts の showDefinition でここの定義に飛ぶ。
 ---
 
 <section class="panel" data-panel="defs">
+  <nav class="subtabs" aria-label="規則と定義" data-en-aria-label="Rules and definitions">
+    <a href="#rules" data-en="Inference rules">推論規則</a>
+    <a href="#defs" data-en="Definitions">定義</a>
+  </nav>
   <p
     class="lead"
-    data-en="Every definition used in wormlab, with sources: the games (battles), the functions on ordinals, how notations denote ordinals, and the semantics of the calculi. The examples under each definition are computed on the spot by wormlab-core, so they always match the implementation. The inference rules are on the Rules tab."
+    data-en="Every definition used in wormlab, with sources: the games (battles), fundamental sequences, the functions on ordinals, how notations denote ordinals, and the semantics of the calculi. Each definition has one example per case, computed on the spot by wormlab-core, so the examples always match the implementation. Special cases (such as Cantor normal forms and worms with natural-number letters) are separate definitions linked to the general one. The inference rules are under “Inference rules” above."
   >
-    wormlab で使う定義を、出典つきで一か所に集めました。ゲーム（battle）、順序数上の関数、表記と順序数の対応、体系の意味論です。
-    各定義の「計算した例」は、その場で wormlab-core を呼んで作っているので、いつも実装と一致します。推論規則は「規則」のタブにあります。
+    wormlab で使う定義を、出典つきで一か所に集めました。ゲーム（battle）、基本列、順序数上の関数、表記と順序数の対応、体系の意味論です。
+    各定義には、場合分けごとに 1 つずつ例を付けました。例はその場で wormlab-core を呼んで作っているので、いつも実装と一致します。
+    Cantor 標準形や文字が自然数の worm のような特殊な場合は別の定義にして、一般の場合とリンクでつないでいます。推論規則は上の「推論規則」の側にあります。
   </p>
   <div class="card gl-tools">
     <div class="controls">
@@ -31,7 +36,8 @@
 
 <script>
   import { call } from '../lib/wasm';
-  import { busyText, byId, DEFS_EVENT, h, setStatus, showDefinition } from '../lib/dom';
+  import { busyText, byId, DEFS_EVENT, exampleButtons, h, setStatus, showDefinition } from '../lib/dom';
+  import { wormFsFigure, type WormFsFigure } from '../lib/charts';
   import { lang, onLang, tr } from '../lib/i18n';
   import { texBlock } from '../lib/latex';
 
@@ -41,9 +47,13 @@
     name: string;
     lines: string[];
     latex: string;
-    examples: string[];
+    /** 場合分けごとの例（どの場合か・その例） */
+    examples: { case: string; text: string; more?: string[] }[];
     source: string;
     related: string[];
+    /** 一般の場合・特殊な場合の鍵 */
+    general: string[];
+    special: string[];
     tab: string | null;
     research: boolean;
   }
@@ -59,7 +69,7 @@
     battle: ['battle', 'battle'],
     ordinal: ['順序数電卓', 'ordinals'],
     proof: ['証明', 'proofs'],
-    rules: ['規則', 'rules'],
+    rules: ['規則と定義', 'rules & definitions'],
     model: ['Kripke モデル', 'Kripke models'],
   };
 
@@ -89,10 +99,18 @@
         tex.append(texBlock({ title: `${e.symbol}  ${e.name}`, code: e.latex, note: tr('\\begin{align*} は amsmath。', '\\begin{align*} needs amsmath.') }).el);
       }
     });
-    const related = e.related
-      .map((k) => all.get(k))
-      .filter((r): r is Entry => r !== undefined)
-      .map((r) => h('button', { type: 'button', class: 'small gl-chip', 'data-def': r.key, title: r.name }, r.symbol === r.name ? r.name : `${r.symbol}  ${r.name}`));
+    const chips = (keys: string[]) =>
+      keys
+        .map((k) => all.get(k))
+        .filter((r): r is Entry => r !== undefined)
+        .map((r) => h('button', { type: 'button', class: 'small gl-chip', 'data-def': r.key, title: r.name }, r.symbol === r.name ? r.name : `${r.symbol}  ${r.name}`));
+    // 一般の場合・特殊な場合に出したものは、関連には重ねて出さない
+    const linked = new Set([...(e.general ?? []), ...(e.special ?? [])]);
+    const general = chips(e.general ?? []);
+    const special = chips(e.special ?? []);
+    const related = chips(e.related.filter((k) => !linked.has(k)));
+    const row = (label: string, items: HTMLElement[], cls = '') =>
+      items.length ? h('div', { class: `gl-related${cls}` }, h('span', { class: 'gl-label' }, label), ...items) : null;
     const tab = e.tab
       ? h(
           'a',
@@ -109,13 +127,141 @@
         ? h(
             'div',
             { class: 'gl-ex' },
-            h('div', { class: 'gl-label' }, tr('wormlab で計算した例', 'Examples computed by wormlab')),
-            h('ul', {}, ...e.examples.map((x) => h('li', {}, x))),
+            h('div', { class: 'gl-label' }, tr('場合ごとの例（wormlab で計算）', 'Examples for each case (computed by wormlab)')),
+            // 【メモ】dl（定義リスト）：dt に場合、dd にその例。CSS の grid で 2 列に並べる（狭い画面では縦に）
+            h('dl', { class: 'gl-cases' }, ...e.examples.flatMap((x) => [h('dt', {}, x.case), h('dd', {}, x.text, moreList(x.more ?? []))])),
           )
         : null,
-      related.length ? h('div', { class: 'gl-related' }, h('span', { class: 'gl-label' }, tr('関連', 'Related')), ...related) : null,
+      e.key === 'nat-worm-fs' ? figureBox() : null,
+      row(tr('一般の場合', 'General case'), general, ' gl-general'),
+      row(tr('特殊な場合', 'Special cases'), special, ' gl-special'),
+      row(tr('関連', 'Related'), related),
       h('div', { class: 'gl-src' }, tr('出典：', 'Source: '), e.source),
       h('div', { class: 'gl-foot' }, tex, tab),
+    );
+  }
+
+  // ---- 図で見る：worm の基本列 A{n}（定義「worm の基本列（文字が自然数）」の中）
+
+  /** 図の例：worm と n（場合ごとの例と同じもの。最初の 6 個のあとは「もっと」） */
+  const FIG_EXAMPLES: [string, number][] = [
+    ['2 0 2', 1], ['0 2 1', 3], ['1 2', 2], ['1 0 1', 2], ['3 2 1', 1], ['2 1 0 3', 1],
+    ['1 1', 2], ['2', 2], ['2 3 2', 1], ['1', 3], ['0 1 0 1', 1], ['3 1 2 0 1', 1],
+  ];
+  /** 図で見ている worm と n（言語を切り替えて描き直しても、そのまま） */
+  const fig = { text: '2 0 2', n: 1 };
+
+  const letters = (xs: number[]) => (xs.length ? xs.join(' ') : '⊤');
+
+  /** 図の上に書く説明：どの場合か、V・U・V′、順序数が下がること。 */
+  function explain(f: WormFsFigure): string[] {
+    const fall = `o(A) = ${f.ordinal}  >  o(A{${f.n}}) = ${f.result_ordinal}`;
+    if (f.head === 0) {
+      return [
+        tr('先頭の文字が 0 なので、その 0 を消すだけ（(0B){n} = B。n によらない）。', 'The head letter is 0, so it is simply dropped ((0B){n} = B, whatever n is).'),
+        fall,
+      ];
+    }
+    const v = f.worm.slice(0, f.cut);
+    const u = f.worm.slice(f.cut);
+    const vp = [f.head - 1, ...v.slice(1)];
+    return [
+      u.length
+        ? tr(
+            `先頭の文字 h = ${f.head}。h 未満の文字が最初に現れるのは ${f.cut + 1} 文字目なので、V = ${letters(v)}、U = ${letters(u)}。`,
+            `Head letter h = ${f.head}. The first letter below h is letter ${f.cut + 1}, so V = ${letters(v)} and U = ${letters(u)}.`,
+          )
+        : tr(
+            `先頭の文字 h = ${f.head}。h 未満の文字がないので、V は A 全体で U = ⊤。`,
+            `Head letter h = ${f.head}. No letter is below h, so V is all of A and U = ⊤.`,
+          ),
+      tr(
+        `V の先頭を h − 1 = ${f.head - 1} にした V′ = ${letters(vp)} を n + 1 = ${f.n + 1} 回並べ、後ろに U を付ける。`,
+        `Replace the head of V by h − 1 = ${f.head - 1} to get V′ = ${letters(vp)}, repeat it n + 1 = ${f.n + 1} times and append U.`,
+      ),
+      fall,
+    ];
+  }
+
+  /** 図の欄：worm と n を選ぶと、A と A{n} を 2 段の棒グラフで描く。 */
+  function figureBox(): HTMLElement {
+    const input = h('input', {
+      type: 'text',
+      value: fig.text,
+      'aria-label': tr('worm（文字は自然数）', 'worm (natural-number letters)'),
+    }) as HTMLInputElement;
+    const nGroup = h('span', { class: 'view-switch gl-fig-n', role: 'group', 'aria-label': 'n' });
+    const lines = h('ul', { class: 'gl-fig-lines' });
+    const chart = h('div', { class: 'gl-fig-chart' });
+    const st = h('div', { class: 'status', 'aria-live': 'polite' });
+    const ex = h('div', { class: 'examples' });
+
+    async function draw() {
+      fig.text = input.value;
+      for (const b of nGroup.querySelectorAll<HTMLElement>('button')) b.setAttribute('aria-pressed', String(Number(b.dataset.n) === fig.n));
+      try {
+        const f = await call<WormFsFigure>((api) => {
+          if (!api.worm_fs_figure) throw new TypeError('worm_fs_figure is not a function');
+          return api.worm_fs_figure(fig.text, fig.n);
+        });
+        setStatus(st, '');
+        lines.replaceChildren(...explain(f).map((l) => h('li', {}, l)));
+        wormFsFigure(chart, f);
+      } catch (e) {
+        setStatus(st, e instanceof Error ? e.message : String(e), true);
+      }
+    }
+
+    nGroup.append(
+      h('span', { class: 'gl-label' }, 'n ='),
+      ...[0, 1, 2, 3, 4, 5].map((n) => {
+        const b = h('button', { type: 'button', class: 'small', 'data-n': String(n), 'aria-pressed': String(n === fig.n) }, String(n));
+        b.addEventListener('click', () => {
+          fig.n = n;
+          draw();
+        });
+        return b;
+      }),
+    );
+    const go = h('button', { type: 'button', class: 'primary small' }, tr('描く', 'Draw'));
+    go.addEventListener('click', draw);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') draw();
+    });
+    exampleButtons(
+      ex,
+      FIG_EXAMPLES.map(([w, n]) => ({
+        label: `${w}, n = ${n}`,
+        run: () => {
+          input.value = w;
+          fig.n = n;
+          draw();
+        },
+      })),
+    );
+    const box = h(
+      'div',
+      { class: 'gl-fig' },
+      h('div', { class: 'gl-label' }, tr('図で見る：A と A{n} を worm の棒グラフで', 'Figure: A and A{n} as worm bar charts')),
+      h('div', { class: 'controls' }, input, go, nGroup),
+      ex,
+      st,
+      lines,
+      chart,
+    );
+    // 【メモ】箱が画面に入ってから描く（幅を測れるように、次のフレームで）
+    requestAnimationFrame(() => draw());
+    return box;
+  }
+
+  /** 同じ場合のほかの例（「もっと見る」で開く。開いた・閉じたは定義ごとに覚えない） */
+  function moreList(more: string[]): HTMLElement | null {
+    if (!more.length) return null;
+    return h(
+      'details',
+      { class: 'gl-more' },
+      h('summary', {}, tr(`もっと見る（${more.length}）`, `more (${more.length})`)),
+      h('ul', {}, ...more.map((m) => h('li', {}, m))),
     );
   }
 
@@ -153,12 +299,14 @@
 
   /** 絞り込み：記号・名前・本文・例・鍵のどれかに含まれる定義だけを出す（大文字と小文字は区別しない）。 */
   function filter() {
+    // まだ読めていない（読み込みに失敗した）ときは、エラーの表示を「0 個中 0 個」で上書きしない
+    if (!cats.length) return;
     const q = search.value.trim().toLowerCase();
     let shown = 0;
     const visible = new Set<string>();
     for (const c of cats) {
       for (const e of c.entries) {
-        const text = [e.key, e.symbol, e.name, ...e.lines, ...e.examples, e.source].join(' ').toLowerCase();
+        const text = [e.key, e.symbol, e.name, ...e.lines, ...e.examples.flatMap((x) => [x.case, x.text, ...(x.more ?? [])]), e.source].join(' ').toLowerCase();
         if (!q || text.includes(q)) visible.add(e.key);
       }
     }
@@ -189,7 +337,8 @@
         setStatus(status, '');
         render();
       } catch (e) {
-        setStatus(status, e instanceof Error ? e.message : String(e), true);
+        // 読み込めないと定義が 1 つも出ないので、エラーは消さずに残す
+        setStatus(status, e instanceof Error ? e.message : String(e), true, true);
       } finally {
         loading = null;
       }
@@ -228,7 +377,7 @@
   window.addEventListener(DEFS_EVENT, (ev) => {
     const key = (ev as CustomEvent<string>).detail;
     const go = () => window.setTimeout(() => jump(key), 0);
-    // 定義のタブがまだ隠れていれば、タブが切り替わって（hashchange）画面に出てから飛ぶ
+    // 定義の画面がまだ隠れていれば、タブが切り替わって（hashchange）画面に出てから飛ぶ
     if (document.querySelector('section[data-panel="defs"]')?.classList.contains('active')) go();
     else window.addEventListener('hashchange', go, { once: true });
   });

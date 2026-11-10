@@ -243,7 +243,7 @@ export function nest(container: HTMLElement, text: string, labels: string[], ran
  * worm の頭（先頭の棒、左端 x0・幅 bw・値 v0）に顔を描く：目、太くなれば赤い口も（ロゴの worm と同じ色）。
  * 棒が細すぎれば何もしない。
  */
-function drawFace(svg: SVGSVGElement, x0: number, bw: number, v0: number, unit: number, blocky: boolean, H: number): void {
+function drawFace(svg: SVGElement, x0: number, bw: number, v0: number, unit: number, blocky: boolean, H: number): void {
   if (bw < 10) return;
   const yTop = H - (v0 + 1) * unit + (blocky ? 1 : 0);
   const room = blocky ? unit - 2 : (v0 + 1) * unit; // 顔を描ける高さ（いちばん上のブロック）
@@ -662,4 +662,152 @@ export function lengthChart(container: HTMLElement, lengths: number[], current: 
   container.append(h('div', { class: 'muted', style: 'font-size:12px' }, log
         ? tr('長さの推移（縦は対数。クリックでそのステップへ）', 'Length over time (log scale; click to jump to that step)')
         : tr('長さの推移（クリックでそのステップへ）', 'Length over time (click to jump to that step)')), svg);
+}
+
+/** worm の基本列 A{n} の図の材料（wasm の worm_fs_figure）。 */
+export interface WormFsFigure {
+  worm: number[];
+  text: string;
+  n: number;
+  /** 先頭の文字 h（0 なら、その 0 が消えるだけ） */
+  head: number;
+  /** h ≥ 1 のとき V の長さ（A = VU）。h = 0 なら 1 */
+  cut: number;
+  result: number[];
+  result_text: string;
+  ordinal: string;
+  result_ordinal: string;
+}
+
+/**
+ * 文字が自然数の worm の基本列 A{n} を、上に A・下に A{n} の 2 段の棒グラフで描く（棒の形と顔は [`bars`] と同じ）。
+ * 色は次のステップでの役割：黄 = 先頭の文字（A では h、A{n} では各 V′ の先頭の h − 1）、水色 = V の残り
+ * （V′ として一緒に複製される）、緑 = U（そのまま残る）。A = 0B なら黄の 0 が消えて、残り（緑）がそのまま A{n}。
+ * 下の段では V′ ごとに括弧を付け、全体に ×(n + 1) の括弧を重ねる。2 段は同じ棒の幅・同じ高さの目盛りで描く。
+ */
+export function wormFsFigure(container: HTMLElement, f: WormFsFigure): void {
+  container.replaceChildren();
+  const W = Math.max(320, Math.min(1060, container.clientWidth || 1060));
+  const H = 110; // 棒の段の高さ
+  const LABEL = 18; // 段の上の名前
+  const BR = 18; // 括弧 1 段分
+  const zero = f.head === 0;
+  const rows = [f.worm, f.result];
+  const maxLen = Math.max(f.worm.length, f.result.length, 1);
+  const slot = Math.min(42, W / maxLen);
+  const gap = slot >= 6 ? 2 : 0;
+  const bw = Math.max(1, slot - gap);
+  const top = Math.max(1, ...f.worm);
+  const unit = (H - 10) / (top + 1);
+  const blocky = bw >= 6 && unit >= 6;
+  const FILL = { head: 'var(--accent)', copy: 'var(--series-3)', rest: 'var(--series-1)' } as const;
+  type Role = keyof typeof FILL;
+  // 段ごとの、文字の役割
+  const rolesA: Role[] = f.worm.map((_, i) => (i === 0 ? 'head' : !zero && i < f.cut ? 'copy' : 'rest'));
+  const copies = zero ? 0 : f.n + 1;
+  const rolesR: Role[] = f.result.map((_, i) => (i < copies * f.cut ? (i % f.cut === 0 ? 'head' : 'copy') : 'rest'));
+  const rowH = LABEL + H + 2 * BR + 10;
+  const totalH = 2 * rowH + 6;
+  const svg = s('svg', { width: W, height: totalH, viewBox: `0 0 ${W} ${totalH}`, role: 'img' });
+  const muted = { 'font-size': 12, fill: 'var(--text-muted)' };
+
+  /** 横の範囲 [from, to] の下に括弧を描き、真ん中に名前を書く（幅が足りなければ名前は省く） */
+  const brace = (g: SVGElement, from: number, to: number, level: number, label: string, color: string) => {
+    const xa = from * slot;
+    const xb = to * slot + bw;
+    const y = H + 5 + (level - 1) * BR;
+    const d = Math.min(4, (xb - xa) / 4);
+    const mid = (xa + xb) / 2;
+    g.append(
+      s('path', {
+        d: `M ${xa} ${y} Q ${xa} ${y + d} ${xa + d} ${y + d} L ${mid - d} ${y + d} Q ${mid} ${y + d} ${mid} ${y + 2 * d} Q ${mid} ${y + d} ${mid + d} ${y + d} L ${xb - d} ${y + d} Q ${xb} ${y + d} ${xb} ${y}`,
+        fill: 'none',
+        stroke: color,
+        'stroke-width': 1.5,
+      }),
+    );
+    if (6.6 * label.length <= xb - xa + 16) {
+      const lx = Math.min(W - 3.3 * label.length, Math.max(3.3 * label.length, mid));
+      g.append(s('text', { x: lx, y: y + 2 * d + 11, 'font-size': 11, fill: color, 'text-anchor': 'middle' }, label));
+    }
+  };
+
+  rows.forEach((letters, r) => {
+    const g = s('g', { transform: `translate(0, ${r * rowH + LABEL})` });
+    const roles = r === 0 ? rolesA : rolesR;
+    // 段の名前（長ければ、図の幅に入るところまでで切る）
+    const full = r === 0 ? `A = ${f.text}` : `A{${f.n}} = ${f.result_text}`;
+    const fit = Math.max(12, Math.floor(W / 7.5));
+    const name = full.length > fit ? `${full.slice(0, fit - 1)}…` : full;
+    svg.append(s('text', { x: 0, y: r * rowH + 13, 'font-size': 13, fill: 'var(--text-primary)' }, name));
+    g.append(s('line', { x1: 0, x2: W, y1: H, y2: H, stroke: 'var(--axis)', 'stroke-width': 1 }));
+    if (!letters.length) {
+      g.append(s('text', { x: 8, y: H - 8, ...muted }, tr('⊤（空の worm）', '⊤ (the empty worm)')));
+      svg.append(g);
+      return;
+    }
+    // 役割ごとの色の組に棒を入れる
+    const groups = Object.fromEntries((Object.keys(FILL) as Role[]).map((k) => [k, s('g', { fill: FILL[k] })])) as Record<Role, SVGGElement>;
+    letters.forEach((v, i) => drawBar(groups[roles[i]], i * slot, bw, v, unit, blocky, H));
+    g.append(groups.rest, groups.copy, groups.head);
+    drawFace(g, 0, bw, letters[0], unit, blocky, H);
+    // 括弧：A は V と U（0B なら消える 0 と B）、A{n} は V′ ごとと ×(n + 1)、U
+    const n = letters.length;
+    if (r === 0) {
+      if (zero) {
+        brace(g, 0, 0, 1, tr('消える', 'drops'), FILL.head);
+        if (n > 1) brace(g, 1, n - 1, 1, 'B', FILL.rest);
+      } else {
+        brace(g, 0, f.cut - 1, 1, 'V', FILL.copy);
+        if (f.cut < n) brace(g, f.cut, n - 1, 1, 'U', FILL.rest);
+      }
+    } else if (!zero) {
+      for (let c = 0; c < copies; c++) brace(g, c * f.cut, (c + 1) * f.cut - 1, 1, 'V′', FILL.copy);
+      brace(g, 0, copies * f.cut - 1, 2, `×${copies}`, 'var(--accent)');
+      if (copies * f.cut < n) brace(g, copies * f.cut, n - 1, 1, 'U', FILL.rest);
+    } else if (n > 0) {
+      brace(g, 0, n - 1, 1, 'B', FILL.rest);
+    }
+    // ツールチップ：何文字目か、値、役割
+    const what = (role: Role) =>
+      role === 'head'
+        ? r === 0
+          ? zero
+            ? tr('先頭の 0（消える）', 'the leading 0 (dropped)')
+            : tr('先頭の文字 h', 'the head letter h')
+          : tr('V′ の先頭（h − 1）', 'head of a copy V′ (h − 1)')
+        : role === 'copy'
+          ? r === 0
+            ? tr('V の残り（V′ で一緒に複製される）', 'rest of V (copied in each V′)')
+            : tr('V′ の残り', 'rest of a copy V′')
+          : r === 0
+            ? zero
+              ? 'B'
+              : tr('U（そのまま残る）', 'U (kept as it is)')
+            : zero
+              ? 'B'
+              : 'U';
+    const hit = s('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent' });
+    hit.addEventListener('mousemove', (e) => {
+      const rect = svg.getBoundingClientRect();
+      const px = ((e.clientX - rect.left) / rect.width) * W;
+      const i = Math.min(n - 1, Math.max(0, Math.floor(px / slot)));
+      showTip(tr(`${i + 1} 文字目：${letters[i]}（${what(roles[i])}）`, `letter ${i + 1}: ${letters[i]} (${what(roles[i])})`), e.clientX, e.clientY);
+    });
+    hit.addEventListener('mouseleave', hideTip);
+    g.append(hit);
+    svg.append(g);
+  });
+
+  const swatch = (color: string) => h('span', { style: `color:${color}` }, '■ ');
+  const legend = h(
+    'div',
+    { class: 'muted', style: 'font-size:12px;margin-bottom:4px;display:flex;flex-wrap:wrap;gap:2px 14px' },
+    zero
+      ? h('span', {}, swatch(FILL.head), tr('先頭の 0（消える）', 'the leading 0 (dropped)'))
+      : h('span', {}, swatch(FILL.head), tr('先頭の文字（A では h、A{n} では h − 1）', 'head letter (h in A, h − 1 in A{n})')),
+    zero ? null : h('span', {}, swatch(FILL.copy), tr('V の残り（V′ として n + 1 回複製される）', 'rest of V (copied n + 1 times as V′)')),
+    h('span', {}, swatch(FILL.rest), zero ? tr('残り B（そのまま A{n}）', 'the rest B (becomes A{n})') : tr('U（そのまま残る）', 'U (kept as it is)')),
+  );
+  container.append(legend, svg);
 }

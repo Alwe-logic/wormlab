@@ -44,6 +44,8 @@ export interface Api {
   ordinal_notations?: () => string;
   /** 定義集：ゲーム・順序数上の関数・表記と順序数・意味論の定義（分類ごと。古い wasm にはない） */
   glossary?: () => string;
+  /** 文字が自然数の worm の基本列 A{n} の図の材料（定義のタブ。古い wasm にはない） */
+  worm_fs_figure?: (input: string, n: number) => string;
   /** 隠し機能：ロゴの worm の battle の step ステップ目（古い wasm にはない） */
   logo_worm?: (step: number) => string;
 }

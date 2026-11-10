@@ -11,7 +11,7 @@ import NotationPicker from './NotationPicker.astro';
 // 英語の文（中に要素があるものは data-en-html に入れる）
 const EN = {
   lead:
-    "Rewrites ordinals in Veblen notation, as worms (with ordinal letters) and as bracket words. Whichever form you enter, you get the normal form of the same ordinal. Numbers beyond Γ₀ can be written with Ω and ψ (e.g. <span class='mono'>ψ(ε_(Ω + 1))</span>, the ψ of Worms and spiders) or as impredicative worms with Ω as a letter (e.g. <span class='mono'>((()))Ω</span>).",
+    "Rewrites ordinals in Veblen notation, as worms (with ordinal letters) and as bracket words. Whichever form you enter, you get the normal form of the same ordinal. Numbers beyond Γ₀ can be written with Ω and the collapsing function ψ of Worms and spiders, as in <span class='mono'>ψ(ε_(Ω + 1))</span>, or as impredicative worms with Ω as a letter, as in <span class='mono'>((()))Ω</span>. Wherever an ordinal is asked for (worm letters included), you can also type an expression such as <span class='mono'>ψ(Ω^Ω)</span>, <span class='mono'>ε_0·ω</span> or <span class='mono'>(ω + 1)^2</span>; it is computed to normal form, with the same syntax as the expression card below.",
   rcbi:
     "A &lt;¹₁ B means “B ⊢ ⟨1⟩₁A”. Closed formulas without ∇ are well-ordered by this order and reach up to the Bachmann–Howard ordinal. Syntax: <span class='mono'>&lt;1&gt;_2</span> = ⟨1⟩₂, <span class='mono'>&lt;2&gt;_3</span> = ⟨2⟩₃, <span class='mono'>D</span> = ↓, <span class='mono'>T</span> = ⊤.",
 };
@@ -19,9 +19,7 @@ const EN = {
 
 <section class="panel" data-panel="ordinal">
   <p class="lead" data-en-html={EN.lead}>
-    順序数を、Veblen 表記・worm（文字が順序数）・括弧語で書き換えます。どの書き方で入れても、
-    同じ順序数の標準形が出ます。Γ₀ を超える数は Ω と ψ（<span class="mono">ψ(ε_(Ω + 1))</span> など、
-    Worms and spiders の ψ）か、Ω を文字に持つ impredicative worm（<span class="mono">((()))Ω</span> など）で書けます。
+    順序数を、Veblen 表記・worm（文字が順序数）・括弧語で書き換えます。どの書き方で入れても、同じ順序数の標準形が出ます。Γ₀ を超える数は、Ω と Worms and spiders の崩壊関数 ψ を使って <span class="mono">ψ(ε_(Ω + 1))</span> のように書くか、Ω を文字に持つ impredicative worm で <span class="mono">((()))Ω</span> のように書けます。順序数を入れる欄（worm の文字も）には、<span class="mono">ψ(Ω^Ω)</span>・<span class="mono">ε_0·ω</span>・<span class="mono">(ω + 1)^2</span> のような式も書けます（下の「式の標準形」のカードと同じ書き方で、計算して標準形にします）。
   </p>
   <NotationPicker />
   <div class="card">
@@ -71,6 +69,7 @@ const EN = {
       <input type="text" id="c-b" value="ω^2" aria-label="右" data-en-aria-label="Right" />
       <button class="primary" id="c-run" type="button" data-en="Compare">比較</button>
     </div>
+    <div class="examples" id="c-examples"></div>
     <div class="def-links">
       <span data-en="Definitions:">定義：</span>
       <button type="button" class="small" data-def="worm" data-en="the worm order <₀">worm の順序 <₀</button>
@@ -94,6 +93,7 @@ const EN = {
       <input type="text" id="r-b" value="<2>_2<2>_3 T" aria-label="式 B" data-en-aria-label="Formula B" />
       <button class="primary" id="r-cmp" type="button" data-en="Compare">比較</button>
     </div>
+    <div class="examples" id="r-examples"></div>
     <div class="def-links">
       <span data-en="Definitions:">定義：</span>
       <button type="button" class="small" data-def="rcbi-order" data-en="<¹₁ and ordinals"><¹₁ と順序数</button>
@@ -105,6 +105,7 @@ const EN = {
       <input type="text" id="r-f" value="<2>_2<2>_3 T" aria-label="基本列を見る式" data-en-aria-label="Formula to inspect" />
       <button id="r-fs" type="button" data-en="Form and fundamental sequence">形と基本列</button>
     </div>
+    <div class="examples" id="r-f-examples"></div>
     <div class="status" id="r-status" aria-live="polite"></div>
     <div id="r-info"></div>
   </div>
@@ -112,7 +113,7 @@ const EN = {
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { busyText, byId, examples, exploreOrdinal, h, setStatus } from '../lib/dom';
+  import { busyText, byId, exampleButtons, examples, exploreOrdinal, h, setStatus } from '../lib/dom';
   import { recordOrdinal } from '../lib/hiscore';
   import { onLang, tr } from '../lib/i18n';
   import { texBlock } from '../lib/latex';
@@ -150,12 +151,42 @@ const EN = {
     latex: string;
   }
 
+  // 最初の 6 個が見えていて、残りは「もっと」で開く
   const EXAMPLES: Record<string, string[]> = {
-    ordinal: ['ε_0', 'ω^ω + 3', 'ε_1', 'φ(2, 0)', 'φ(ω, 0)', 'φ(ε_0, 0)', 'ψ(0)', 'ψ(Ω)', 'ψ(ε_(Ω + 1))'],
-    worm: ['2 0 1', '1 1 1', '<ω><ω>', '<ε_0 + 1><0>'],
-    bracket: ['((()))', '(())()', '((())(()))', '(((())))'],
-    iworm: ['Ω', '()Ω', 'Ω()Ω', '((()))Ω', '(Ω)Ω', 'ΩΩ'],
+    ordinal: [
+      'ε_0', 'ω^ω + 3', 'ε_1', 'ε_0·ω', 'φ(2, 0)', 'ψ(0)', 'φ(ω, 0)', 'φ(ε_0, 0)', 'ψ(Ω)', 'ψ(Ω^Ω)', 'ψ(ε_(Ω + 1))',
+      'ω^2 + ω·3 + 1', 'ω^(ω + 1)', 'ε_ω', 'ε_(ε_0)', 'φ(2, 1)', 'φ(3, 0)', 'φ(ω^ω, 0)', 'ψ(1)', 'ψ(Ω·2)', 'e^(ω^2)(1)',
+    ],
+    worm: ['2 0 1', '1 1 1', '<ω><ω>', '<ε_0 + 1><0>', '<Ω^Ω>', '1 0 1', '2 1 0', '3', '0 0 0', '<ω^2>', '<ω + 1><0><ω>', '<φ(2, 0)>'],
+    bracket: ['((()))', '(())()', '((())(()))', '(((())))', '()()', '(()())', '(()())()(())', '((())())', '(()(()))'],
+    iworm: ['Ω', '()Ω', 'Ω()Ω', '((()))Ω', '(Ω)Ω', 'ΩΩ', '(())Ω', '(Ω)', 'ΩΩΩ', '((Ω))Ω'],
   };
+
+  /** 比較のカードの例：左の種類・左・右の種類・右 */
+  const COMPARE_EXAMPLES: [string, string, string, string][] = [
+    ['worm', '1 1', 'ordinal', 'ω^2'],
+    ['worm', '2 0 1', 'worm', '2'],
+    ['bracket', '((()))', 'ordinal', 'ε_0'],
+    ['ordinal', 'ε_0·2', 'ordinal', 'ω^(ε_0 + 1)'],
+    ['iworm', 'Ω', 'ordinal', 'ψ(0)'],
+    ['worm', '1 0 1 1', 'worm', '1 1'],
+    ['ordinal', 'φ(ω, 0)', 'bracket', '(((())))'],
+    ['ordinal', 'Ω^Ω', 'ordinal', 'Ω·ω'],
+    ['bracket', '(())()', 'bracket', '(())'],
+    ['ordinal', 'ψ(Ω)', 'iworm', 'Ω()Ω'],
+  ];
+
+  /** RC_BI のカードの例：比べる 2 つの式と、形と基本列を見る式 */
+  const RCBI_PAIRS: [string, string][] = [
+    ['<1>_3<2>_3 T', '<2>_2<2>_3 T'],
+    ['<1>_2 T', 'D T'],
+    ['<1>_1 T & <1>_1 T', '<1>_1 T'],
+    ['<2>_2 T', 'D D T'],
+    ['D <1>_2 T', '<2>_2 T'],
+    ['<1>_1 <1>_1 T', '<1>_2 T'],
+    ['<2>_3 T', '<2>_2 <2>_2 T'],
+  ];
+  const RCBI_FORMS = ['<2>_2<2>_3 T', '<1>_2 T', 'D T', '<2>_2 T', 'D <1>_2 T', '<1>_2 T & <1>_1 <1>_1 T', '<1>_1 <1>_1 T & <1>_1 T', 'T & T'];
 
   const kind = byId<HTMLSelectElement>('o-kind');
   const input = byId<HTMLInputElement>('o-input');
@@ -301,6 +332,33 @@ const EN = {
 
   function fillExamples() {
     examples(byId('o-examples'), input, EXAMPLES[kind.value], run);
+    // 比較のカード：種類も一緒に入れる
+    exampleButtons(
+      byId('c-examples'),
+      COMPARE_EXAMPLES.map(([ka, a, kb, b]) => ({
+        label: `${a}  vs  ${b}`,
+        run: () => {
+          byId<HTMLSelectElement>('c-kind-a').value = ka;
+          byId<HTMLInputElement>('c-a').value = a;
+          byId<HTMLSelectElement>('c-kind-b').value = kb;
+          byId<HTMLInputElement>('c-b').value = b;
+          compare();
+        },
+      })),
+    );
+    // RC_BI のカード：比べる 2 つの式と、形と基本列を見る式
+    exampleButtons(
+      byId('r-examples'),
+      RCBI_PAIRS.map(([a, b]) => ({
+        label: `${a}  vs  ${b}`,
+        run: () => {
+          byId<HTMLInputElement>('r-a').value = a;
+          byId<HTMLInputElement>('r-b').value = b;
+          rcbiCompare();
+        },
+      })),
+    );
+    examples(byId('r-f-examples'), byId<HTMLInputElement>('r-f'), RCBI_FORMS, () => rcbiInfo());
   }
 
   kind.addEventListener('change', () => {
