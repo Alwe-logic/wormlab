@@ -75,12 +75,13 @@ cargo run -q --release -- blen "ω^2 + ω·18"   # 多倍長：31 万桁の長�
 cargo run -q -- thm52 2                       # G(2) > 2^(4.23×10^455)
 cargo run -q -- rules bwc                     # 公理と規則の一覧（rc・wc・bc・bwc・rcbi、省略なら全部。--json 可）
 cargo run -q -- expr "e^(ω + 1)(1) + ψ(Ω + ψ(Ω·2 + 1))"  # 式（+・·・^・φ・ε・超指数 e^α・ψ）を、使った定義つきで 1 段ずつ標準形に
-cargo run -q -- defs                          # 定義集：ゲーム・順序数上の関数・表記と順序数・意味論（出典・wormlab で計算した例つき）
-cargo run -q -- defs worm-battle --latex       # 1 つの定義（鍵）か分類（games・functions・notations・semantics）だけ。--json も
+cargo run -q -- defs                          # 定義集：ゲーム・基本列・順序数上の関数・表記と順序数・意味論（出典・場合ごとの例・一般と特殊のリンクつき）
+cargo run -q -- defs worm-battle --latex       # 1 つの定義（鍵）か分類（games・fundamental・functions・notations・semantics）だけ。--json も
 cargo run -q -- forms "φ(2, 0) + ε_0·2 + 3"   # 同じ順序数をいろいろな標準形で（Veblen 形・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
 cargo run --release -p wormlab-core --example battles   # battle の長さの比較表
 cargo run -q -- wclt 0 "<ω><ω>" "<ε_0>"       # 順序数の worm の WC 証明
 cargo run -q -- ordinal "ψ(ε_(Ω + 1))"        # Γ0 を超える：Ω と ψ（Worms and spiders の ψ、ψ(0) = Γ0）
+cargo run -q -- ordinal "ψ(Ω^Ω)"              # 順序数を入れる所は式も読む（Ω^Ω・ε_0·ω・(ω + 1)^2 などを計算して標準形に。worm の文字も）
 cargo run -q -- psi "Ω + ψ(Ω·2 + 1)"          # ψ(ξ) の崩し（ξ ∉ C(ξ) なら ψ(ξ) = ψ(z0)）
 cargo run -q -- iworm "((()))Ω"               # impredicative worm：値は Bachmann–Howard 順序数 ψ(ε_(Ω+1))
 cargo run -q -- iwormof "ψ(Ω)"                # 順序数 → impredicative worm（ψ(e^{Ω+1}1) 未満）

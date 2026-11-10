@@ -258,6 +258,16 @@ impl Worm<u32> {
         Some(Worm(out))
     }
 
+    /// 基本列 A{n} = battle_step(n) の内訳（定義のタブの図に使う）。⊤ なら `None`。
+    /// A = 0B なら先頭の 0 が消えるだけ（`cut` = 1）。そうでなければ A = VU と分ける位置
+    /// （V = A の先頭から `cut` 文字。h 未満の文字がなければ `cut` = 長さで U = ⊤）。
+    /// battle_step とは別に書き、テストで両者の結果が同じことを確かめる。
+    pub fn fs_parts(&self) -> Option<FsParts> {
+        let &head = self.0.first()?;
+        let cut = if head == 0 { 1 } else { self.0.iter().position(|&x| x < head).unwrap_or(self.0.len()) };
+        Some(FsParts { head, cut })
+    }
+
     /// m = 1, 2, 3, … として battle_step を繰り返すイテレータ。
     /// 最初の要素は元の worm 自身。
     pub fn battle(&self) -> Battle {
@@ -342,6 +352,33 @@ impl Iterator for Battle {
 // ----------------------------------------------------------------------
 // 文字列との相互変換
 // ----------------------------------------------------------------------
+
+/// 基本列 A{n} の 1 ステップの内訳（[`Worm::fs_parts`]）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FsParts {
+    /// 先頭の文字 h（0 なら、その 0 が消えるだけ）
+    pub head: u32,
+    /// h ≥ 1 のとき V の長さ（V = A の先頭から cut 文字、残りが U）。h = 0 なら 1
+    pub cut: usize,
+}
+
+impl FsParts {
+    /// A{n} を内訳から組み立てる：h = 0 なら残り、そうでなければ V′（V の先頭を h − 1 に）を n + 1 回と U。
+    pub fn apply(&self, a: &Worm, n: usize) -> Worm {
+        let l = a.letters();
+        if self.head == 0 {
+            return Worm::new(l[1..].to_vec());
+        }
+        let mut v = l[..self.cut].to_vec();
+        v[0] = self.head - 1;
+        let mut out = Vec::with_capacity(v.len() * (n + 1) + l.len() - self.cut);
+        for _ in 0..=n {
+            out.extend_from_slice(&v);
+        }
+        out.extend_from_slice(&l[self.cut..]);
+        Worm::new(out)
+    }
+}
 
 impl<L: Letter> fmt::Display for Worm<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -443,6 +480,34 @@ mod tests {
 
     fn o(s: &str) -> String {
         w(s).ordinal().to_string()
+    }
+
+    #[test]
+    fn fs_parts_rebuild_the_battle_step() {
+        // 図に使う内訳から組み立てた A{n} が、battle_step(n) と同じ（長さ 7 まで・文字 0〜3 の全部の worm）
+        let mut count = 0;
+        for len in 1..=7u32 {
+            for code in 0..4u32.pow(len) {
+                let letters: Vec<u32> = (0..len).map(|i| code / 4u32.pow(i) % 4).collect();
+                let a = Worm::new(letters);
+                let p = a.fs_parts().unwrap();
+                assert!(p.cut >= 1 && p.cut <= a.len(), "{a}: {p:?}");
+                if p.head > 0 {
+                    // V の文字はすべて h 以上、U の先頭は h 未満
+                    assert!(a.letters()[..p.cut].iter().all(|&x| x >= p.head), "{a}: {p:?}");
+                    assert!(a.letters().get(p.cut).is_none_or(|&x| x < p.head), "{a}: {p:?}");
+                }
+                for n in 0..3 {
+                    assert_eq!(p.apply(&a, n), a.battle_step(n).unwrap(), "{a} {{{n}}}");
+                }
+                count += 1;
+            }
+        }
+        assert_eq!(count, (1..=7).map(|l| 4usize.pow(l)).sum::<usize>());
+        assert_eq!(Worm::top().fs_parts(), None);
+        assert_eq!(w("2 0 2").fs_parts(), Some(FsParts { head: 2, cut: 1 }));
+        assert_eq!(w("1 2").fs_parts(), Some(FsParts { head: 1, cut: 2 }));
+        assert_eq!(w("0 2 1").fs_parts(), Some(FsParts { head: 0, cut: 1 }));
     }
 
     #[test]

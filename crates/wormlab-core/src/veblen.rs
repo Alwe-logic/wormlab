@@ -189,8 +189,9 @@ impl Veblen {
         if let [(q, 1)] = b.terms.as_slice()
             && level_above(q, &a)
         {
-            // b は φ(a, ·) の不動点
-            return Veblen { terms: vec![(q.clone(), c)] };
+            // b は φ(a, ·) の不動点（b の項をそのまま使い、複製しない）
+            let (q, _) = b.terms.into_iter().next().expect("項は 1 つ");
+            return Veblen { terms: vec![(q, c)] };
         }
         if b.is_zero()
             && let [(s, 1)] = a.terms.as_slice()
@@ -513,16 +514,29 @@ impl Veblen {
         if self.is_zero() || !self.is_predicative() {
             return None;
         }
+        Some(self.fundamental_predicative(n))
+    }
+
+    /// [`Veblen::fundamental`] の本体（0 でなく Γ0 未満の数について）。
+    /// 【メモ】Γ0 未満かどうかは入口で 1 回だけ調べる（再帰の段ごとに数全体を調べると、入れ子の深さ × 大きさの手間になる）
+    fn fundamental_predicative(&self, n: u64) -> Veblen {
         if self.is_successor() {
-            return self.pred();
+            return self.pred().expect("後続順序数");
         }
-        let mut terms = self.terms.clone();
-        let (p, c) = terms.pop().expect("空でない");
-        if c > 1 {
+        // 最後の項 P·c だけを基本列で下げる：β + P·c ↦ β + P·(c − 1) + P[n]。
+        // 【メモ】最後の項は複製しない（ω^ω^…^λ のように入れ子が深いと、段ごとに丸ごと複製して
+        // 入れ子の深さ × 大きさの手間になっていた。標準 battle の 1 ステップが 100 ms かかることがあった）
+        let (p, c) = self.terms.last().expect("空でない");
+        let mut terms = self.terms[..self.terms.len() - 1].to_vec();
+        if *c > 1 {
             terms.push((p.clone(), c - 1));
         }
-        let Prin::V(a, b) = &p else { unreachable!("述語的な数の主項は φ") };
-        Some(Veblen { terms } + fundamental_phi(a, b, n))
+        let Prin::V(a, b) = p else { unreachable!("述語的な数の主項は φ") };
+        // P[n] < P で P は主項なので、P[n] の先頭の項は P より小さい。前の項（P 以上）とはまとまらないので、
+        // 足し算（比べながらまとめる）をせずに並べるだけでよい
+        terms.extend(fundamental_phi(a, b, n).terms);
+        debug_assert!(terms.windows(2).all(|w| w[0].0 > w[1].0), "基本列の項が減少していない");
+        Veblen { terms }
     }
 
     /// ε0 未満なら Cantor 標準形の [`Ordinal`] に変換する。
@@ -610,11 +624,11 @@ fn fundamental_phi(a: &Veblen, b: &Veblen, n: u64) -> Veblen {
         // ω^b（b ≥ 1）
         return match b.pred() {
             Some(bp) => Veblen::omega_pow(bp).mul_nat(n),
-            None => Veblen::omega_pow(b.fundamental(n).expect("b は極限")),
+            None => Veblen::omega_pow(b.fundamental_predicative(n)),
         };
     }
     if b.is_limit() {
-        return Veblen::phi(a.clone(), b.fundamental(n).expect("b は極限"));
+        return Veblen::phi(a.clone(), b.fundamental_predicative(n));
     }
     // b は 0 か後続：φ(a, b) は「φ(a, b−1) の次の不動点」
     let start = match b.pred() {
@@ -625,7 +639,7 @@ fn fundamental_phi(a: &Veblen, b: &Veblen, n: u64) -> Veblen {
         Some(ap) => (0..n).fold(start, |x, _| Veblen::phi(ap.clone(), x)),
         None => {
             // a は極限
-            let an = a.fundamental(n).expect("a は極限");
+            let an = a.fundamental_predicative(n);
             Veblen::phi(an, start)
         }
     }
@@ -651,20 +665,22 @@ impl Add for Veblen {
     type Output = Veblen;
 
     fn add(self, rhs: Veblen) -> Veblen {
-        let Some((lead, lead_c)) = rhs.terms.first() else {
+        // 【Rust メモ】into_iter は rhs の項を「取り出して」使う（先頭の項を複製しない。大きな数の足し算が速くなる）
+        let mut rest = rhs.terms.into_iter();
+        let Some((lead, lead_c)) = rest.next() else {
             return self;
         };
         let mut terms = Vec::new();
-        let mut merged = *lead_c;
+        let mut merged = lead_c;
         for (p, c) in self.terms {
-            match p.cmp(lead) {
+            match p.cmp(&lead) {
                 Ordering::Greater => terms.push((p, c)),
                 Ordering::Equal => merged += c,
                 Ordering::Less => break,
             }
         }
-        terms.push((lead.clone(), merged));
-        terms.extend(rhs.terms.into_iter().skip(1));
+        terms.push((lead, merged));
+        terms.extend(rest);
         Veblen { terms }
     }
 }

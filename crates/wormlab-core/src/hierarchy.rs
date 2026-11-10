@@ -40,10 +40,15 @@ impl Default for Budget {
     }
 }
 
+/// Hardy 関数を計算するときの仕事量（基本列をとる順序数の大きさの合計）の上限。
+/// 回数の上限（[`Budget`]）だけだと、φ(2, 0) のように基本列の項がどんどん大きくなる数で、
+/// 打ち切るまでに何十秒もかかっていた（CLI の `hardy "φ(2,0)" 3`）。
+pub const HARDY_MAX_WORK: u64 = 2_000_000;
+
 /// Hardy 関数 H_α(n)。上限を超えたら `None`。
 pub fn hardy(alpha: &Veblen, n: u128, budget: Budget) -> Option<u128> {
     let (mut a, mut n) = (alpha.clone(), n);
-    let mut steps = 0u64;
+    let (mut steps, mut work) = (0u64, 0u64);
     // 【Rust メモ】`while let パターン = 式` は「パターンに合う間は繰り返す」。
     while let Some((beta, x, y, c)) = a.split_last() {
         if x.is_zero() && y.is_zero() {
@@ -57,7 +62,8 @@ pub fn hardy(alpha: &Veblen, n: u128, budget: Budget) -> Option<u128> {
             a = beta;
         } else {
             steps += 1;
-            if steps > budget.max_steps {
+            work += a.size() as u64;
+            if steps > budget.max_steps || work > HARDY_MAX_WORK {
                 return None;
             }
             // Ω・ψ を含む数の基本列はまだ定義していないので、そこで打ち切る
@@ -292,7 +298,7 @@ pub enum BigValue {
     Exact(BigNat),
     /// 2^k を超える（大きすぎて途中で止めたが、ここまでは確か）
     Above2Pow(BigNat),
-    /// 計算の回数の上限で止めた。本当の値はこれ以上
+    /// 計算の量の上限（回数・語の長さ・仕事量）で止めた。本当の値はこれ以上
     AtLeast(BigNat),
 }
 
@@ -317,9 +323,9 @@ impl BigValue {
             }
             BigValue::AtLeast(n) => {
                 if crate::i18n::is_en() {
-                    format!("at least {} (stopped at the step limit)", n.summary())
+                    format!("at least {} (stopped at the computation limit)", n.summary())
                 } else {
-                    format!("{} 以上（計算の回数の上限で打ち切り）", n.summary())
+                    format!("{} 以上（計算の量の上限で打ち切り）", n.summary())
                 }
             }
         }
@@ -520,7 +526,7 @@ pub fn hardy_big(alpha: &Veblen, n: &BigNat, budget: BigBudget) -> Option<BigVal
         return None;
     }
     let (mut a, mut n) = (alpha.clone(), n.clone());
-    let mut steps = 0u64;
+    let (mut steps, mut work) = (0u64, 0u64);
     while let Some((beta, x, y, c)) = a.split_last() {
         if x.is_zero() && y.is_zero() {
             n = n.add_small(c);
@@ -543,7 +549,8 @@ pub fn hardy_big(alpha: &Veblen, n: &BigNat, budget: BigBudget) -> Option<BigVal
             a = beta;
         } else {
             steps += 1;
-            if steps > budget.max_steps {
+            work += a.size() as u64;
+            if steps > budget.max_steps || work > HARDY_MAX_WORK {
                 return Some(BigValue::AtLeast(n));
             }
             let Some(k) = n.to_u64() else {

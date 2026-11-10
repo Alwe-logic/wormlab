@@ -1,6 +1,7 @@
 //! wormlab コマンドラインツール
 //!
 //! 使い方：
+//! ```text
 //!   wormlab ord    "1 0 2"          worm の順序数・標準形・Π 順序数を表示（--json 可）
 //!   wormlab table  "1 0" "2" …      複数の worm を CSV で（引数がなければ標準入力から 1 行 1 worm）
 //!   wormlab cmp    "1 1" "2"        2 つの worm を <_0 で比較（--json 可）
@@ -30,8 +31,9 @@
 //!   wormlab blen "ω^2 + ω"           worm battle と標準 battle の長さ
 //!   wormlab rules [体系]             各体系（rc・wc・bc・bwc・rcbi）の公理と規則の一覧（--json 可）
 //!   wormlab expr "e^ω(1) + ψ(0)"     順序数の式（+・·・^・φ・ε・e^α・ψ）を使った定義つきで標準形に（--latex 可）
-//!   wormlab defs [分類|鍵]           定義集：ゲーム・順序数上の関数・表記と順序数・意味論（出典・計算した例つき。--json・--latex）
+//!   wormlab defs [分類|鍵]           定義集：ゲーム・基本列・順序数上の関数・表記と順序数・意味論（出典・場合ごとの例つき。--json・--latex）
 //!   wormlab forms "ε_0 + 1"          同じ順序数をいろいろな標準形で（Veblen・φ だけ・超指数と ψ・worm・括弧語・impredicative worm）
+//! ```
 //!
 //! ord・cmp・lt・wc・wclt は、文字が順序数の worm（例 "<ω+1><0><ε_0>"）も受け付ける。
 //!
@@ -133,7 +135,8 @@ fn proof_tex<J: ToLatex, R: ToLatex>(system: &str, verdict: &str, p: &Proof<J, R
 }
 
 fn parse_ordinal(s: &str) -> Result<Veblen, String> {
-    s.parse::<Veblen>().map_err(|e| e.to_string())
+    // 式としても読む（Ω^Ω・ε_0·ω・(ω + 1)^2 など）
+    expr::parse_ordinal(s)
 }
 
 fn parse_bracket(s: &str) -> Result<Bracket, String> {
@@ -622,7 +625,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 let (x, y) = (parse(a)?, parse(b)?);
                 say(&x, &k, &y, x.lt_n(&y, k));
             } else {
-                let k: Veblen = n.parse().map_err(|_| format!("n が順序数として読めません: {n}"))?;
+                let k: Veblen = parse_ordinal(n).map_err(|e| format!("n が順序数として読めません: {e}"))?;
                 let (x, y) = (parse_o(a)?, parse_o(b)?);
                 say(&x, &k, &y, x.lt_n(&y, k.clone()));
             }
@@ -644,12 +647,12 @@ fn run(args: &[String]) -> Result<(), String> {
             if let (Ok(k), true) = (n.parse::<u32>(), all_nat(&[a, b])) {
                 show_proof(&wc::prove_lt(k, &parse(a)?, &parse(b)?)?, json, tex)
             } else {
-                let k: Veblen = n.parse().map_err(|_| format!("n が順序数として読めません: {n}"))?;
+                let k: Veblen = parse_ordinal(n).map_err(|e| format!("n が順序数として読めません: {e}"))?;
                 show_proof(&wc::prove_lt(k, &parse_o(a)?, &parse_o(b)?)?, json, tex)
             }
         }
         [cmd, a] if cmd == "ordinal" => {
-            let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+            let x = parse_ordinal(a)?;
             if let Some(t) = tex {
                 t.emit(vec![latex::ordinal_block(None, &x, 6)]);
                 return Ok(());
@@ -682,7 +685,7 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         [cmd, a, b] if cmd == "ordinal" => {
-            let p = |s: &str| s.parse::<Veblen>().map_err(|e| e.to_string());
+            let p = |s: &str| parse_ordinal(s);
             let (x, y) = (p(a)?, p(b)?);
             let rel = match x.cmp(&y) {
                 Ordering::Less => "<",
@@ -879,7 +882,7 @@ fn run(args: &[String]) -> Result<(), String> {
             bc_cmd(&goal, full_proof, json, tex)
         }
         [cmd, a] if cmd == "bracketof" => {
-            let x: Veblen = a.parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+            let x = parse_ordinal(a)?;
             if !x.is_predicative() {
                 return Err(format!("{x} は Γ0 以上（Ω・ψ を含む）なので括弧語で表せません"));
             }
@@ -936,7 +939,7 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         [cmd, rest @ ..] if cmd == "defs" && rest.len() <= 1 => {
-            // 定義集：引数なしなら全部、分類（games・functions・notations・semantics）か定義の鍵なら、それだけ
+            // 定義集：引数なしなら全部、分類（games・fundamental・functions・notations・semantics）か定義の鍵なら、それだけ
             let mut cats = glossary::all();
             if let Some(q) = rest.first() {
                 if let Some(c) = cats.iter().find(|c| c.id == q.as_str()).cloned() {
@@ -944,7 +947,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 } else {
                     let e = glossary::get(q).ok_or_else(|| {
                         let keys: Vec<&str> = glossary::all().iter().flat_map(|c| c.entries.iter().map(|e| e.key).collect::<Vec<_>>()).collect();
-                        format!("分類（games・functions・notations・semantics）か定義の鍵を指定してください: {q}\n鍵: {}", keys.join(" "))
+                        format!("分類（games・fundamental・functions・notations・semantics）か定義の鍵を指定してください: {q}\n鍵: {}", keys.join(" "))
                     })?;
                     let mut c = cats.into_iter().find(|c| c.entries.iter().any(|x| x.key == e.key)).expect("鍵のある分類");
                     c.entries = vec![e];
@@ -969,10 +972,20 @@ fn run(args: &[String]) -> Result<(), String> {
                         println!("  ・{l}");
                     }
                     if !e.examples.is_empty() {
-                        println!("  例（wormlab で計算）:");
+                        println!("  例（場合ごとに 1 つ、wormlab で計算）:");
                         for x in &e.examples {
-                            println!("    {x}");
+                            println!("    {}  ⟶  {}", x.case, x.text);
+                            // 同じ場合のほかの例
+                            for m in &x.more {
+                                println!("        {m}");
+                            }
                         }
+                    }
+                    if !e.general.is_empty() {
+                        println!("  一般の場合: {}", e.general.join(" "));
+                    }
+                    if !e.special.is_empty() {
+                        println!("  特殊な場合: {}", e.special.join(" "));
                     }
                     if !e.related.is_empty() {
                         println!("  関連: {}", e.related.join(" "));
@@ -1195,7 +1208,7 @@ fn big_line(v: Option<BigValue>, full: bool) -> String {
             let k = if k.chars().all(|c| c.is_ascii_digit()) { k } else { format!("({k})") };
             format!("> 2^{k}（途中の値が上限を超えたので下界。上限は --bits=N で変えられる）")
         }
-        Some(BigValue::AtLeast(n)) => format!("≥ {}（計算の回数か語の長さの上限で打ち切り）", n.summary()),
+        Some(BigValue::AtLeast(n)) => format!("≥ {}（計算の量（回数・語の長さ・仕事量）の上限で打ち切り）", n.summary()),
     }
 }
 

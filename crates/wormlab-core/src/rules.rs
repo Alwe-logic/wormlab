@@ -435,8 +435,8 @@ fn rcbi() -> System {
             )
             .into(),
             tr(
-                "wormlab は導出を作らない。変数のないシーケント A ⊢ B を、有限モデル M_A の根で B を検査して判定する（Thm 3.19）。",
-                "wormlab does not build derivations here. It decides variable-free sequents A ⊢ B by checking B at the root of the finite model M_A (Thm 3.19).",
+                "RC_BI では、wormlab はこれらの規則を組み合わせた導出（証明図）を作らない。変数のないシーケント A ⊢ B が導けるかどうかは、有限モデル M_A の根で B が真かを調べて判定する（Thm 3.19：導ける ⟺ 根で真）。だから証明のタブでは、RC_BI だけ証明図が出ず、判定とモデルが出る。",
+                "For RC_BI, wormlab does not build derivations (proof diagrams) from these rules. Whether a variable-free sequent A ⊢ B is derivable is decided by checking whether B is true at the root of the finite model M_A (Thm 3.19: derivable iff true at the root). So on the proofs tab, RC_BI alone shows a verdict and a model instead of a proof diagram.",
             )
             .into(),
             tr(

@@ -241,3 +241,42 @@ fn veblen_samples() {
     assert_eq!(ev("ψ(Ω^Ω)").value, Veblen::psi(arith::pow(&om, &om).unwrap()));
     assert_eq!(ev("(ε_0)^2").value, arith::pow(&v("ε_0"), &Veblen::nat(2)).unwrap());
 }
+
+/// 順序数の入力（expr::parse_ordinal）：ふつうの書き方はそのまま、読めない書き方は式として計算する。
+#[test]
+fn ordinal_inputs_accept_expressions() {
+    let p = |s: &str| expr::parse_ordinal(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+    // Ω^Ω = (ω^Ω)^Ω = ω^(Ω·Ω) = ω^ω^(Ω·2)
+    assert_eq!(p("Ω^Ω"), v("ω^ω^(Ω·2)"));
+    assert_eq!(p("ψ(Ω^Ω)"), Veblen::psi(v("ω^ω^(Ω·2)")));
+    assert_eq!(p("ε_0·ω"), v("ω^(ε_0 + 1)"));
+    assert_eq!(p("(ω + 1)^2"), v("ω^2 + ω + 1"));
+    assert_eq!(p("e^ω(1)·2"), v("ε_0·2"));
+    // 書き方の違い（O・psi・w）もふつうどおり
+    assert_eq!(p("psi(O^O)"), p("ψ(Ω^Ω)"));
+    // 読めないもの・大きすぎるものはエラー
+    assert!(expr::parse_ordinal("ω^").is_err());
+    assert!(expr::parse_ordinal("10^100").is_err());
+    assert!(expr::parse_ordinal("").is_err());
+    // worm の文字も式で書ける
+    let w: wormlab_core::worm::Worm<Veblen> = "⟨Ω^Ω⟩⟨ε_0·ω⟩".parse().unwrap();
+    assert_eq!(w.letters(), &[v("ω^ω^(Ω·2)"), v("ω^(ε_0 + 1)")]);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    /// ふつうの書き方の数は、parse_ordinal でも同じ数になる（式の側に回らない）
+    #[test]
+    fn parse_ordinal_agrees_with_the_plain_parser(x in wide()) {
+        prop_assert_eq!(expr::parse_ordinal(&x.to_string()).unwrap(), x);
+    }
+
+    /// 式の表示を parse_ordinal で読むと、式の値になる
+    #[test]
+    fn parse_ordinal_evaluates_expressions(t in arb_expr()) {
+        if let Ok(e) = expr::evaluate(&t) {
+            prop_assert_eq!(expr::parse_ordinal(&t.to_string()).unwrap(), e.value);
+        }
+    }
+}

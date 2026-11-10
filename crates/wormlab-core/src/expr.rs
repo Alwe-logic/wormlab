@@ -73,6 +73,15 @@ fn bx(e: Expr) -> Box<Expr> {
 }
 
 impl Expr {
+    /// 1 か（書いた 1 でも、計算した値の 1 でも）。e^1 を e と書くのに使う。
+    fn is_one(&self) -> bool {
+        match self {
+            Expr::Nat(n) => *n == 1,
+            Expr::Val(v) => v.as_nat() == Some(1),
+            _ => false,
+        }
+    }
+
     /// 子の数。
     fn arity(&self) -> usize {
         match self {
@@ -176,6 +185,8 @@ impl fmt::Display for Expr {
             Expr::Phi(a, b) => write!(f, "φ({a}, {b})"),
             Expr::Eps(a) if is_short(a) => write!(f, "ε_{a}"),
             Expr::Eps(a) => write!(f, "ε_({a})"),
+            // e^1 は e と書く（読むときも 'e' '(' は e^1）
+            Expr::Hyp(a, b) if a.is_one() => write!(f, "e({b})"),
             Expr::Hyp(a, b) if is_short(a) => write!(f, "e^{a}({b})"),
             Expr::Hyp(a, b) => write!(f, "e^({a})({b})"),
             Expr::Psi(a) => write!(f, "ψ({a})"),
@@ -195,6 +206,7 @@ impl ToLatex for Expr {
             Expr::Pow(a, b) => format!("{}^{{{}}}", a.wrap_tex(ATOM), b.to_latex()),
             Expr::Phi(a, b) => format!("\\varphi({}, {})", a.to_latex(), b.to_latex()),
             Expr::Eps(a) => format!("\\varepsilon_{{{}}}", a.to_latex()),
+            Expr::Hyp(a, b) if a.is_one() => format!("e({})", b.to_latex()),
             Expr::Hyp(a, b) => format!("e^{{{}}}({})", a.to_latex(), b.to_latex()),
             Expr::Psi(a) => format!("\\psi({})", a.to_latex()),
             Expr::Val(v) => v.to_latex(),
@@ -478,6 +490,18 @@ impl Eval {
 pub fn eval_str(s: &str) -> Result<Eval, String> {
     let e: Expr = s.parse().map_err(|e: ParseExprError| e.to_string())?;
     evaluate(&e).map_err(|e| e.to_string())
+}
+
+/// 順序数の入力を読む。まずふつうの書き方（[`Veblen`] のパーサ。`ω^(ω + 1)·2 + 3`・`φ(2, 0)`・`ψ(ε_(Ω + 1))` など）で読み、
+/// 読めなければ式として計算して標準形にする。だから `Ω^Ω`・`ψ(Ω^Ω)`・`ε_0·ω`・`(ω + 1)^2`・`e^ω(1)` のように、
+/// ふつうの書き方にない演算（順序数どうしの掛け算・べき乗、超指数関数）も書ける。
+/// どちらでも読めなければ、式としてのエラーを返す（式の文法はふつうの書き方を含むので、こちらの方が詳しい）。
+/// 計算の大きさの上限（[`arith::MAX_SIZE`]）は式の計算と同じ。
+pub fn parse_ordinal(s: &str) -> Result<Veblen, String> {
+    if let Ok(v) = s.parse::<Veblen>() {
+        return Ok(v);
+    }
+    eval_str(s).map(|e| e.value)
 }
 
 /// 式を内側から 1 段ずつ標準形にする。

@@ -108,6 +108,25 @@ proptest! {
         }
     }
 
+    /// α[n] は最後の項だけを下げたもの：β + P·c なら β + P·(c − 1) + P[n]（足し算で組み立てたものと同じ。
+    /// 実装は足し算をせずに項を並べるだけなので、その並べ方が正しいことの確認）。
+    /// 表示を読み直しても同じ数（項が標準形の順に並んでいる）
+    #[test]
+    fn fundamental_lowers_only_the_last_term(x in veblen(), n in 0u64..6) {
+        if x.is_limit() {
+            let (beta, a, b, c) = x.split_last().unwrap();
+            let p = Veblen::phi(a, b);
+            let mut expected = beta;
+            for _ in 1..c {
+                expected = expected + p.clone();
+            }
+            expected = expected + p.fundamental(n).unwrap();
+            let got = x.fundamental(n).unwrap();
+            prop_assert_eq!(&got, &expected);
+            prop_assert_eq!(got.to_string().parse::<Veblen>().unwrap(), got);
+        }
+    }
+
     /// 極限 λ の基本列は、λ より小さい「途中の値」をいずれ超える：
     /// λ[m] + 1 も λ より小さく、十分先の λ[n] はそれを超える
     #[test]

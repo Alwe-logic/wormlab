@@ -61,8 +61,9 @@ impl Letter for Veblen {
         Veblen::zero()
     }
 
+    /// 文字も式として読める（`⟨Ω^Ω⟩`・`⟨ε_0·ω⟩` など。[`crate::expr::parse_ordinal`]）。
     fn parse_letter(s: &str) -> Option<Self> {
-        s.trim().parse().ok()
+        crate::expr::parse_ordinal(s.trim()).ok()
     }
 }
 

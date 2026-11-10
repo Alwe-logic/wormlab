@@ -73,7 +73,8 @@ fn parse_input(kind: &str, s: &str) -> Result<Input, String> {
         return Err(tr("入力が空です", "the input is empty").to_string());
     }
     match kind {
-        "ordinal" => s.parse::<Veblen>().map(Input::Ordinal).map_err(|e| e.to_string()),
+        // 順序数は式としても読む（Ω^Ω・ε_0·ω など）
+        "ordinal" => expr::parse_ordinal(s).map(Input::Ordinal),
         "worm" => match s.parse::<Worm>() {
             Ok(w) => Ok(Input::Worm(w)),
             Err(_) => s.parse::<Worm<Veblen>>().map(Input::OWorm).map_err(|e| e.to_string()),
@@ -122,7 +123,15 @@ fn ordinal_info_impl(kind: &str, input: &str) -> Result<Value, String> {
     let a = x.ordinal();
     let limit = a.is_limit();
     let input_view = match &x {
-        Input::Ordinal(v) => json!({ "kind": "ordinal", "text": v.to_string() }),
+        Input::Ordinal(v) => {
+            // 式として読んだとき（Ω^Ω・ε_0·ω など）は、書いた式を見せる（標準形は「順序数」の行に出る）
+            let t = input.trim();
+            let text = match t.parse::<Veblen>() {
+                Ok(_) => v.to_string(),
+                Err(_) => t.parse::<expr::Expr>().map(|e| e.to_string()).unwrap_or_else(|_| v.to_string()),
+            };
+            json!({ "kind": "ordinal", "text": text })
+        }
         Input::Worm(w) => json!({
             "kind": "worm", "text": w.to_string(), "normal_form": w.normal_form().to_string(),
         }),
@@ -244,14 +253,58 @@ const MAX_WORM_FS_N: u64 = 150;
 /// 標準 battle の k の始まりの上限。
 const MAX_DESCENT_START: u64 = 20;
 
-/// 基本列の探検：順序数 α の形（0・後続・極限）、直前の数、標準の基本列 α[n] と worm が作る列 α{n}
-/// （n = from, from+1, …、count 個）、標準 battle の道すじ α, α[k], α[k][k+1], …（k = start から、0 まで）。
+/// 定義のタブの図（worm の基本列 A{n}）：入れる worm の文字数・文字の大きさ・n・結果の文字数の上限。
+const MAX_FIG_LETTERS: usize = 40;
+const MAX_FIG_LETTER: u32 = 20;
+const MAX_FIG_N: u32 = 9;
+const MAX_FIG_RESULT: usize = 400;
+
+/// 文字が自然数の worm の基本列 A{n} を図にする材料：元の worm、n、先頭の文字 h と V の長さ（cut）、
+/// 結果 A{n}、両方の順序数。図は Web 側で、V（先頭は黄・残りは水色）、U（緑）、V′ の n + 1 回の繰り返しに色を付けて描く。
+#[wasm_bindgen]
+pub fn worm_fs_figure(input: &str, n: u32) -> String {
+    out((|| {
+        let a: Worm = input.trim().parse().map_err(|e: wormlab_core::worm::ParseWormError| e.to_string())?;
+        if a.is_top() {
+            return Err(tr("⊤ には基本列がありません", "⊤ has no fundamental sequence").to_string());
+        }
+        if a.len() > MAX_FIG_LETTERS || a.letters().iter().any(|&x| x > MAX_FIG_LETTER) || n > MAX_FIG_N {
+            return Err(format!(
+                "{} {MAX_FIG_LETTERS}{}{MAX_FIG_LETTER}{}{MAX_FIG_N}{}",
+                tr("図にできるのは、文字数", "figures allow up to"),
+                tr(" 文字・文字の大きさ ", " letters, letters up to "),
+                tr("・n が ", " and n up to "),
+                tr(" までです", ""),
+            ));
+        }
+        let p = a.fs_parts().expect("⊤ でない");
+        let r = p.apply(&a, n as usize);
+        if r.len() > MAX_FIG_RESULT {
+            return Err(format!("{}{MAX_FIG_RESULT}{}", tr("A{n} が長すぎます（", "A{n} is too long (more than "), tr(" 文字まで）", " letters)")));
+        }
+        debug_assert_eq!(Some(&r), a.battle_step(n as usize).as_ref());
+        Ok(json!({
+            "worm": a.letters(),
+            "text": a.to_string(),
+            "n": n,
+            "head": p.head,
+            "cut": p.cut,
+            "result": r.letters(),
+            "result_text": r.to_string(),
+            "ordinal": a.ordinal().to_string(),
+            "result_ordinal": r.ordinal().to_string(),
+        }))
+    })())
+}
+
+/// 基本列の探検：順序数 α の形（0・後続・極限）、直前の数、標準の基本列 `α[n]` と worm が作る列 `α{n}`
+/// （n = from, from+1, …、count 個）、標準 battle の道すじ `α, α[k], α[k][k+1], …`（k = start から、0 まで）。
 #[wasm_bindgen]
 pub fn ordinal_explore(input: &str, from: u32, count: u32, start: u32) -> String {
     // 【Rust メモ】wasm-bindgen では u64 が JavaScript の BigInt になるので、引数は u32 で受けて広げる
     let (from, count, start) = (u64::from(from), u64::from(count), u64::from(start));
     out((|| {
-        let a: Veblen = input.trim().parse().map_err(|e: wormlab_core::veblen::ParseOrdinalError| e.to_string())?;
+        let a: Veblen = expr::parse_ordinal(input.trim())?;
         if from > MAX_FS_N {
             return Err(if i18n::is_en() {
                 format!("n must be at most {MAX_FS_N}")
@@ -1527,20 +1580,63 @@ mod tests {
     }
 
     #[test]
+    fn ordinal_inputs_are_expressions() {
+        set_lang("ja");
+        let r = parse(&ordinal_info("ordinal", "ψ(Ω^Ω)"));
+        assert_eq!(r["ordinal"], "ψ(ω^ω^(Ω·2))");
+        assert_eq!(r["input"]["text"], "ψ(Ω^Ω)");
+        let r = parse(&ordinal_explore("ε_0·ω", 0, 3, 1));
+        assert_eq!(r["ordinal"], "ω^(ε_0 + 1)");
+        let r = parse(&ordinal_compare("ordinal", "Ω^Ω", "ordinal", "Ω·ω"));
+        assert_eq!(r["relation"], ">");
+        let r = parse(&ordinal_arith("+", "ordinal", "(ω + 1)^2", "ordinal", "1"));
+        assert_eq!(r["result"], "ω^2 + ω + 2");
+        let r = parse(&ordinal_info("worm", "<Ω^Ω>"));
+        assert!(r.get("error").is_none(), "{r}");
+        // 読めなければ、式としてのエラー
+        assert!(parse(&ordinal_info("ordinal", "ω^"))["error"].is_string());
+    }
+
+    #[test]
     fn glossary_list() {
         set_lang("ja");
         let v = parse(&glossary());
         let cats = v.as_array().unwrap();
-        assert_eq!(cats.len(), 4);
+        assert_eq!(cats.len(), 5);
         let entries: Vec<&Value> = cats.iter().flat_map(|c| c["entries"].as_array().unwrap()).collect();
-        assert!(entries.len() >= 30, "{}", entries.len());
+        assert!(entries.len() >= 40, "{}", entries.len());
         for e in &entries {
             assert!(e["latex"].as_str().unwrap().starts_with("\\begin{align*}"), "{}", e["key"]);
             assert!(e["lines"].as_array().is_some_and(|l| !l.is_empty()));
         }
         let wb = entries.iter().find(|e| e["key"] == "worm-battle").unwrap();
         assert_eq!(wb["tab"], "battle");
-        assert!(wb["examples"][1].as_str().unwrap().contains("1 1 0 2"));
+        // 例は場合ごとに {case, text}
+        assert!(wb["examples"][0]["text"].as_str().unwrap().contains("1 1 0 2"));
+        assert!(!wb["examples"][0]["case"].as_str().unwrap().is_empty());
+        // 一般の場合と特殊な場合のリンク
+        let fs = entries.iter().find(|e| e["key"] == "fs").unwrap();
+        assert!(fs["special"].as_array().unwrap().iter().any(|k| k == "cnf-fs"));
+    }
+
+    #[test]
+    fn worm_fs_figure_parts() {
+        set_lang("ja");
+        let v = parse(&worm_fs_figure("2 0 2", 1));
+        assert_eq!((v["head"].as_u64(), v["cut"].as_u64()), (Some(2), Some(1)));
+        assert_eq!(v["result_text"], "1 1 0 2");
+        assert_eq!(v["result"], json!([1, 1, 0, 2]));
+        assert_eq!((v["ordinal"].as_str(), v["result_ordinal"].as_str()), (Some("ω^ω·2"), Some("ω^ω + ω^2")));
+        // A = 0B は先頭の 0 が消えるだけ、h 未満の文字がなければ U = ⊤
+        let z = parse(&worm_fs_figure("0 2 1", 3));
+        assert_eq!((z["head"].as_u64(), z["cut"].as_u64(), z["result_text"].as_str()), (Some(0), Some(1), Some("2 1")));
+        let t = parse(&worm_fs_figure("1 2", 2));
+        assert_eq!((t["cut"].as_u64(), t["result_text"].as_str()), (Some(2), Some("0 2 0 2 0 2")));
+        // ⊤、大きすぎる n・文字・長さ、順序数の文字は断る
+        for (w, n) in [("⊤", 1), ("1", 10), ("21", 1), ("<ω>", 1)] {
+            assert!(parse(&worm_fs_figure(w, n))["error"].is_string(), "{w} {n}");
+        }
+        assert!(parse(&worm_fs_figure(&vec!["1"; 41].join(" "), 0))["error"].is_string());
     }
 
     #[test]
