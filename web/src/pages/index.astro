@@ -7,6 +7,10 @@ import Model from '../components/Model.astro';
 import Rules from '../components/Rules.astro';
 import Glossary from '../components/Glossary.astro';
 
+// フッターのリンク（ソースコードと作者のホームページ）
+const REPO_URL = 'https://github.com/Alwe-logic/wormlab';
+const AUTHOR_URL = 'https://alwe-logic.github.io/homepage/';
+
 // ロゴの worm の頭（ドット絵、左向き）。1 文字が 1 ドット：
 //   G 体、K 目、W 目の光、R 口、T 舌、. 透明
 const HEAD = [
@@ -116,6 +120,12 @@ const tabs = [
         data-en="References: Beklemishev (RC), de Almeida Borges–Joosten (WC), Fernández-Duque–Hermo Reyes (bracket words, BC), Pakhomov–Lazar (RC_BI, arXiv:2610.20115)."
         >参考文献：Beklemishev（RC）、de Almeida Borges–Joosten（WC）、Fernández-Duque–Hermo Reyes（括弧語・BC）、
         Pakhomov–Lazar（RC_BI, arXiv:2610.20115）。</span
+      >
+      <span
+        data-en-html={`Source code: <a href="${REPO_URL}">GitHub</a> (MIT / Apache-2.0). Author: <a href="${AUTHOR_URL}en/about/">Ichikawa Koshiro</a>.`}
+        >ソースコード：<a href={REPO_URL}>GitHub</a>（MIT / Apache-2.0）。作者：<a href={`${AUTHOR_URL}about/`}
+          >Ichikawa Koshiro</a
+        >。</span
       >
       <div class="credit">EVERY WORM REACHES ⊤ — BUT PA CAN'T PROVE IT</div>
     </div>

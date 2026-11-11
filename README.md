@@ -3,6 +3,13 @@
 Beklemishev の worm、多様相証明可能性論理 GLP、Reflection Calculus (RC) を
 計算・証明するためのツール群（Rust）。
 
+**Web 版**：<https://alwe-logic.github.io/wormlab/>（インストール不要。計算はすべてブラウザの中で行います）
+
+> Tools for computing with Beklemishev's worms, the Reflection Calculus and related ordinal
+> notations (bracket words, Veblen and ψ notation, RC_BI), written in Rust and compiled to
+> WebAssembly for the web version above. The web interface is available in Japanese and English;
+> this README and the code comments are in Japanese.
+
 ## 構成
 
 ```
@@ -134,5 +141,9 @@ cargo run -q -- battle "2 0 2" 10 --latex                      # battle の表
 - [x] RC_BI 手順 2：順序 <¹₁・≡¹₁、基本列 (A)_n、線形性の検証
 - [ ] RC_BI 手順 3：o(A) の計算（ε₀ → Γ₀ → Bachmann–Howard）
 - [x] 段階3: Web 可視化（Astro ＋ WebAssembly）：battle・順序数電卓・証明（証明図）・規則の一覧・Kripke モデル
-- [ ] Web の公開（claude.ai のページ、GitHub Pages）
+- [x] Web の公開（GitHub Pages：<https://alwe-logic.github.io/wormlab/>）
 - [ ] 以降: spiders / GLP₀ / 一般 RC の証明（TRC）/ 一般 GLP
+
+## ライセンス
+
+MIT と Apache-2.0 のどちらかを選んで使えます（[LICENSE-MIT](LICENSE-MIT)・[LICENSE-APACHE](LICENSE-APACHE)）。

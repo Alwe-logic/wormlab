@@ -57,6 +57,10 @@ npm run preview   # 書き出したものを手元で確認
 GitHub Pages などでサブディレクトリに置くときは、`BASE_PATH=/wormlab npm run build` のように
 置き場所を指定します。
 
+公開版（<https://alwe-logic.github.io/wormlab/>）は、main に push すると GitHub Actions
+（[`.github/workflows/pages.yml`](../.github/workflows/pages.yml)）が Rust → WebAssembly → Astro の順に
+作り直して置きます。手元でビルドしたものをアップロードする必要はありません。
+
 ## 構成
 
 - `src/pages/index.astro`：ページ本体（タブの切り替え）
