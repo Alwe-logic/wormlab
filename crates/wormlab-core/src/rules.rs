@@ -372,7 +372,7 @@ fn rcbi() -> System {
             )
             .into(),
             tr(
-                "⟨1⟩_n：Π¹_n 反射、⟨2⟩_n：Π¹_n の ω モデル反射、↓：ω モデルへの射影、∇：真な Π¹₁ 定理（すべて ACA₀ の上）。⟨i⟩_α の i は 1 か 2",
+                "⟨1⟩_n：Π¹_n 反映、⟨2⟩_n：Π¹_n の ω モデル反映、↓：ω モデルへの射影、∇：真な Π¹₁ 定理（すべて ACA₀ の上）。⟨i⟩_α の i は 1 か 2",
                 "⟨1⟩_n: Π¹_n reflection; ⟨2⟩_n: Π¹_n ω-model reflection; ↓: projection to ω-models; ∇: true Π¹₁ theorems (all over ACA₀). In ⟨i⟩_α, i is 1 or 2",
             )
             .into(),

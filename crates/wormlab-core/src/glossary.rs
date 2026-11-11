@@ -1196,7 +1196,7 @@ p(w) &= \pi(w^\pi)
                 "W_BI is the set of RC_BI formulas without variables, ∇ and ⟨1⟩_ω",
             ),
             (
-                "A <¹₁ B :⟺ B ⊢ ⟨1⟩₁A（B の理論は A の理論の Π¹₁ 反射を示す）。A ≡¹₁ B :⟺ ∇A ⊣⊢ ∇B（同じ Π¹₁ 定理をもつ）",
+                "A <¹₁ B :⟺ B ⊢ ⟨1⟩₁A（B の理論は A の理論の Π¹₁ 反映を示す）。A ≡¹₁ B :⟺ ∇A ⊣⊢ ∇B（同じ Π¹₁ 定理をもつ）",
                 "A <¹₁ B :⟺ B ⊢ ⟨1⟩₁A (the theory of B proves Π¹₁ reflection for that of A); A ≡¹₁ B :⟺ ∇A ⊣⊢ ∇B (they have the same Π¹₁ theorems)",
             ),
             (

@@ -31,7 +31,7 @@
 //! - [`veblen`] の Ω・ψ：Worms and spiders Def 6.19 の ψ（ψ(0) = Γ0、ψ(ε_{Ω+1}) = Bachmann–Howard）。
 //!   正規形・比較・C(ξ) の判定・任意の引数の ψ（崩し）
 //! - [`iworm`]：impredicative autonomous worm（Ω を文字に持つ括弧語）、射影 π、値 p(w) と逆写像（Thm 6.36）
-//! - [`rcbi`]：Pakhomov–Lazar の RC_BI / RC_BIω（構文的反射・ω モデル反射・↓・∇）。
+//! - [`rcbi`]：Pakhomov–Lazar の RC_BI / RC_BIω（構文的反映・ω モデル反映・↓・∇）。
 //!   有限モデル M_A による閉じた式の判定（arXiv:2610.20115, Thm 3.19）とフレーム条件の検査
 //! - [`rcbi_order`]：RC_BI の順序 <¹₁・≡¹₁（Def 4.1）、式の形（零・後続・極限）、基本列 (A)_n（Def 4.6）、battle
 //! - [`hierarchy`]：Hardy 階層・急増加関数（標準の基本列 α[n] による）、battle の長さ（多倍長でも）
