@@ -811,3 +811,83 @@ export function wormFsFigure(container: HTMLElement, f: WormFsFigure): void {
   );
   container.append(legend, svg);
 }
+
+/**
+ * BC の不動点 Ψ の反復：∅ から上向き（Ψ^j(∅) の大きさ）と、全体から下向き（Ψ^j(Cmp(U)) の大きさ）の
+ * 2 本の折れ線。どちらも同じ不動点（点線）に着く。`up[0] = 0`、`down[0]` = 全体の大きさ。
+ */
+export function fixpointChart(container: HTMLElement, up: number[], down: number[], fixed: number): void {
+  container.replaceChildren();
+  const K = Math.max(up.length, down.length) - 1;
+  // 先に着いた方は、そのあと不動点のまま
+  const pad = (xs: number[]) => xs.concat(Array(K + 1 - xs.length).fill(fixed));
+  const [u, d] = [pad(up), pad(down)];
+  const W = Math.max(300, Math.min(760, container.clientWidth || 760));
+  const H = 190;
+  const m = { l: 62, r: 14, t: 12, b: 34 };
+  const top = Math.max(1, ...d, ...u);
+  const xs = (i: number) => m.l + (K <= 0 ? 0 : (i / K) * (W - m.l - m.r));
+  const ys = (v: number) => m.t + (1 - v / top) * (H - m.t - m.b);
+  const svg = s('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img' });
+  svg.setAttribute(
+    'aria-label',
+    tr(`Ψ の反復：上向き ${u.join('、')}、下向き ${d.join('、')}`, `Iterating Ψ: upwards ${u.join(', ')}; downwards ${d.join(', ')}`),
+  );
+  // 目盛り：0・不動点・全体
+  for (const v of [0, fixed, top]) {
+    svg.append(
+      s('line', {
+        x1: m.l, x2: W - m.r, y1: ys(v), y2: ys(v),
+        stroke: v === fixed ? 'var(--accent)' : 'var(--grid)',
+        'stroke-width': 1,
+        'stroke-dasharray': v === fixed ? '4 4' : '',
+      }),
+      s('text', { x: m.l - 6, y: ys(v) + 4, 'font-size': 11, fill: v === fixed ? 'var(--accent)' : 'var(--text-muted)', 'text-anchor': 'end' }, fmtCount(v)),
+    );
+  }
+  for (let i = 0; i <= K; i++) {
+    svg.append(s('text', { x: xs(i), y: H - m.b + 16, 'font-size': 11, fill: 'var(--text-muted)', 'text-anchor': 'middle' }, String(i)));
+  }
+  svg.append(s('text', { x: (m.l + W - m.r) / 2, y: H - 4, 'font-size': 11, fill: 'var(--text-muted)', 'text-anchor': 'middle' }, tr('段 j', 'step j')));
+  const series: [number[], string][] = [
+    [d, 'var(--series-3)'],
+    [u, 'var(--series-1)'],
+  ];
+  for (const [vals, col] of series) {
+    svg.append(s('path', { d: vals.map((v, i) => `${i ? 'L' : 'M'} ${xs(i)} ${ys(v)}`).join(' '), fill: 'none', stroke: col, 'stroke-width': 2 }));
+    vals.forEach((v, i) => svg.append(s('circle', { cx: xs(i), cy: ys(v), r: 3.5, fill: col })));
+  }
+  const cross = s('line', { y1: m.t, y2: H - m.b, stroke: 'var(--axis)', 'stroke-width': 1, visibility: 'hidden' });
+  svg.append(cross);
+  const hit = s('rect', { x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: 'transparent' });
+  hit.addEventListener('mousemove', (e) => {
+    const rect = svg.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.min(K, Math.max(0, Math.round(((px - m.l) / (W - m.l - m.r)) * K)));
+    cross.setAttribute('x1', String(xs(i)));
+    cross.setAttribute('x2', String(xs(i)));
+    cross.setAttribute('visibility', 'visible');
+    showTip(
+      tr(`段 ${i}：Ψ^${i}(∅) = ${fmtCount(u[i])} 個、Ψ^${i}(全体) = ${fmtCount(d[i])} 個`, `step ${i}: Ψ^${i}(∅) has ${fmtCount(u[i])}, Ψ^${i}(all) has ${fmtCount(d[i])}`),
+      e.clientX,
+      e.clientY,
+    );
+  });
+  hit.addEventListener('mouseleave', () => {
+    cross.setAttribute('visibility', 'hidden');
+    hideTip();
+  });
+  svg.append(hit);
+  const key = (col: string, text: string) =>
+    h('span', { class: 'fx-key' }, h('span', { class: 'fx-swatch', style: `background:${col}` }), text);
+  container.append(
+    svg,
+    h(
+      'div',
+      { class: 'fx-legend' },
+      key('var(--series-1)', tr('∅ から上向き Ψ^j(∅)', 'upwards from ∅: Ψ^j(∅)')),
+      key('var(--series-3)', tr('全体から下向き Ψ^j(Cmp(U))', 'downwards from all: Ψ^j(Cmp(U))')),
+      key('var(--accent)', tr(`不動点 ${fmtCount(fixed)} 個`, `fixed point: ${fmtCount(fixed)}`)),
+    ),
+  );
+}

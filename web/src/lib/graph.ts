@@ -31,6 +31,9 @@ export interface ModelJson {
   holds?: boolean;
   title?: string;
   frame_violations?: string[] | null;
+  /** BC の反例モデル：様相の括弧語（正規形）と、BC フレームの条件 (B1)〜(B3) の違反の数（大きいモデルは null） */
+  signature?: string[];
+  bc_frame_violations?: [number, number, number] | null;
 }
 
 const R = 15; // 点の半径（Rust の modelview::RADIUS と同じ）

@@ -10,7 +10,7 @@ wormlab の計算をブラウザで見るためのサイトです。Rust の `wo
 | battle | worm・括弧語・RC_BI の式の battle を 1 ステップずつ再生（worm は棒グラフ、括弧語は入れ子のブロック、長さの推移の折れ線つき）。長くなったステップは、同じ部分が続く所を (ab)^k でまとめて表示（worm・括弧語の図は、繰り返しの中身を 1 回分だけ描いて波括弧と ×k）。worm の battle はまとめたまま進めるので、長さの上限なく 2000 ステップまで |
 | 順序数電卓 | 表示する標準形の選択（Veblen 形・φ だけ・超指数関数と ψ・worm・括弧語・impredicative worm。タブの中の数をその書き方で出す）。順序数・worm・括弧語の相互変換、標準形、基本列、Hardy 関数（順序数を入れる欄は ψ(Ω^Ω)・ε_0·ω のような式も読む）。基本列をたどる探検（α[n]・α{n} を押して降りる、標準 battle の道すじ）、演算 α+β・α·β・α^β（計算の過程つき）、式の標準形（+・·・^・Veblen 関数 φ・ε・超指数関数 e^α・崩壊関数 ψ を組み合わせた式を、使った定義つきで内側から 1 段ずつ。定義の一覧と出典つき）、大小の比較。RC_BI の式の比較と基本列 |
 | 証明 | RC・WC・BC・BWC で判定し、導出を証明図（⋮ で開く・結論を押して畳む、拡大・縮小・幅に合わせる）か入れ子の一覧で表示（成り立たなければ反例モデル）。規則の名前にカーソルを合わせると規則の形が出る。RC_BI は判定とモデル |
-| Kripke モデル | RC の閉包モデルと RC_BI の有限モデル M_A を図で表示（関係ごとに表示を切り替え） |
+| Kripke モデル | RC の閉包モデル・RC_BI の有限モデル M_A・BC の反例モデル（関係の名前が括弧語）を図で表示（関係ごとに表示を切り替え）。BC の自律的な意味論：不動点 Ψ の反復と、2 つの括弧語の比較（研究中） |
 | 規則と定義 | 中の切り替えで 2 つの画面。推論規則（`#rules`）：各体系（RC・WC・BC・BWC・RC_BIω）の公理と推論規則を、証明図と同じ形で一覧（出典・式の書き方・条件・補足つき）。定義（`#defs`）：wormlab で使う定義の一覧（ゲーム（battle と長さ）・基本列・順序数上の関数・表記と順序数の対応・体系の意味論。文字の式・LaTeX・出典・関連する定義・場合分けごとの例（wormlab で計算）つき。Cantor 標準形や文字が自然数の worm の基本列のような特殊な場合は別の定義にして「一般の場合」「特殊な場合」でつなぐ。絞り込みと目次）。ほかのタブの「定義：」のボタンから該当する定義に飛べる |
 
 どのタブでも結果を LaTeX で表示し、コードをコピーできます（「文書としてコピー」はプリアンブルつき）。
@@ -66,7 +66,7 @@ GitHub Pages などでサブディレクトリに置くときは、`BASE_PATH=/w
 - `src/pages/index.astro`：ページ本体（タブの切り替え）
 - `src/components/*.astro`：各タブの画面（見た目と、その画面の動きを書いた `<script>`）。順序数電卓の中の
   `NotationPicker.astro`（表示する標準形の選択）・`Explore.astro`（基本列の探検）・`Arith.astro`（演算）・`Expr.astro`（式の標準形）は別の部品で、ほかのカードからは `dom.ts` の
-  `exploreOrdinal` で探検に数を送る。選んだ標準形での書き換えは `src/lib/notation.ts`（Rust の `ordinal_render` をまとめて呼んで覚える。
+  `exploreOrdinal` で探検に数を送る。Kripke モデルのタブの中の `BcFix.astro` は BC の不動点 Ψ（Rust の `bc_fixpoint`・`bc_compare`）。選んだ標準形での書き換えは `src/lib/notation.ts`（Rust の `ordinal_render` をまとめて呼んで覚える。
   見せる文字だけを書き換え、計算に渡すのはいつも Veblen 形の文字。切り替えると `wormlab:notation` イベント）。証明と規則のタブは `showRules`・`proveIn` で行き来する。どのタブの `data-def="鍵"` のボタンも、`Glossary.astro`（「規則と定義」のタブの定義の側、Rust の `glossary`）の `showDefinition` でその定義に飛ぶ
 - `src/lib/wasm.ts`：WebAssembly の読み込みと呼び出し（Rust の関数は JSON の文字列を返す）
 - `src/lib/graph.ts`：Kripke モデルの図（点の配置は Rust 側の `modelview` が計算）、`src/lib/proof.ts`：証明の表示、

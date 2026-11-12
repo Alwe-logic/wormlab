@@ -1,21 +1,24 @@
 ---
-// Kripke モデルの表示：RC の閉包モデルと、RC_BI の有限モデル M_A。
+// Kripke モデルの表示：RC の閉包モデル、RC_BI の有限モデル M_A、BC の反例モデル（括弧語の閉包モデル）。
+// 下に BC の自律的な意味論（不動点 Ψ）のカードを置く。
+import BcFix from './BcFix.astro';
 ---
 
 <section class="panel" data-panel="model">
   <p
     class="lead"
-    data-en="Draws the models behind the decision procedures: for RC, the model obtained by closing the syntax tree of the formula; for RC_BI, the paper's M_A (the syntax tree plus zero points, intermediate points and copy points, then closed). If you enter a sequent A ⊢ B, the points where B is true get a thick ring."
+    data-en="Draws the models behind the decision procedures: for RC, the model obtained by closing the syntax tree of the formula; for RC_BI, the paper's M_A (the syntax tree plus zero points, intermediate points and copy points, then closed); for BC, the same closure model with bracket words as the names of the relations. If you enter a sequent A ⊢ B, the points where B is true get a thick ring."
   >
     判定の中身であるモデルを描きます。RC では式の構文木を閉包したモデル、RC_BI では論文の M_A
-    （構文木に零点・中間点・コピー点を足して閉包したもの）です。シーケント A ⊢ B を入れると、B が真になる点を
-    太い輪で示します。
+    （構文木に零点・中間点・コピー点を足して閉包したもの）、BC では関係の名前が括弧語の閉包モデルです。
+    シーケント A ⊢ B を入れると、B が真になる点を太い輪で示します。
   </p>
   <div class="card">
     <div class="controls">
       <select id="m-system" aria-label="体系" data-en-aria-label="System">
         <option value="rcbi" data-en="M_A of RC_BI">RC_BI の M_A</option>
         <option value="rc" data-en="closure model of RC">RC の閉包モデル</option>
+        <option value="bc" data-en="BC counter-model (bracket words)">BC の反例モデル（括弧語）</option>
       </select>
       <input type="text" id="m-input" value="D <1> T" aria-label="式かシーケント" data-en-aria-label="Formula or sequent" />
       <button class="primary" id="m-run" type="button" data-en="Draw">描く</button>
@@ -27,19 +30,22 @@
       <button type="button" class="small" data-def="rc-frame" data-en="RC frames">RC のフレーム</button>
       <button type="button" class="small" data-def="rcbi-model">M_A</button>
       <button type="button" class="small" data-def="rcbi-frame" data-en="RC_BIω models">RC_BIω のモデル</button>
+      <button type="button" class="small" data-def="bc-frame" data-en="BC frames">BC のフレーム</button>
     </div>
     <div class="status" id="m-status" aria-live="polite"></div>
   </div>
   <div class="card" id="m-result" hidden>
     <div class="verdict" id="m-title"></div>
     <div class="muted" id="m-extra" style="font-size:13px;margin-bottom:6px"></div>
+    <div id="m-prove"></div>
     <div id="m-graph"></div>
   </div>
+  <BcFix />
 </section>
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { busyText, byId, examples, h, setStatus } from '../lib/dom';
+  import { busyText, byId, examples, h, proveIn, setStatus } from '../lib/dom';
   import { onLang, tr } from '../lib/i18n';
   import { renderModel, type ModelJson } from '../lib/graph';
 
@@ -47,6 +53,17 @@
     // 最初の 6 個が見えていて、残りは「もっと」で開く
     rcbi: ['D <1> T', '<2>_2 <2>_3 T', 'D T & <2>_2 T', '<2>_2 T |- <1> D T', 'D T |- <2>_2 T', 'D D T', '<1>_2 T & D T', 'D (<1>_2 T & <1>_2 T)', '<1>_2 T |- D T'],
     rc: ['<2>p & <1>q', '<1>(p & <0>q)', '<2>p |- <0><1>p', '<0>p |- <1>p', '<1><1>p', '<1>(<0>p & <1>q)', '<2>p & <1>q & <0>r', '<1>p & <1>q |- <1>(p & q)'],
+    // BC：(a)φ のモダリティは括弧語 a。((()))p は ⟨ω⟩p にあたる
+    bc: [
+      '(())p |- ((()))p',
+      '((()))p & ((()))q |- ((()))(p & q)',
+      '((()))p & (())q',
+      '((()))p |- ()(())p',
+      '((())())p |- ((()))((()))p',
+      '(((())))p & ((()()))q',
+      '((()))p |- ((()))((()))p',
+      '(()())(())p & ((()))q',
+    ],
   };
   const kinds = () =>
     tr(
@@ -69,8 +86,9 @@
     setStatus(status, busyText());
     await nextFrame();
     try {
+      const sys = system.value;
       const m = await call<ModelJson>((api) =>
-        system.value === 'rc' ? api.rc_model(input.value) : api.rcbi_model(input.value),
+        sys === 'rc' ? api.rc_model(input.value) : sys === 'bc' ? api.bc_model!(input.value) : api.rcbi_model(input.value),
       );
       setStatus(status, '');
       const title = byId('m-title');
@@ -96,7 +114,31 @@
           );
         }
       }
+      if (sys === 'bc') {
+        extra.push(
+          tr(
+            `関係の名前は様相の括弧語（正規形。≡ の語は同じ関係）：${(m.signature ?? []).join('、')}`,
+            `Relations are named by the modalities as bracket words (in normal form; ≡ words share a relation): ${(m.signature ?? []).join(', ')}`,
+          ),
+        );
+        const v = m.bc_frame_violations;
+        if (v) {
+          extra.push(
+            v.every((x) => x === 0)
+              ? tr(
+                  'BC フレームの条件 (B1)〜(B3) を満たす（添字の比較は順序数を使わない構文的な比較）。ほかの括弧語の関係は Euclid 閉包で足せる',
+                  'Satisfies the BC-frame conditions (B1)–(B3) (indices compared by the ordinal-free syntactic order); the relations of other bracket words can be added by Euclidean closures',
+                )
+              : tr(`BC フレームの条件の違反 ${v.join('・')}（バグです）`, `BC-frame violations ${v.join(', ')} (a bug)`),
+          );
+        }
+      }
       byId('m-extra').textContent = extra.join(tr('　', ' · '));
+      // BC で成り立つなら、証明のタブで導出を見られる
+      const seq = input.value;
+      const go = h('button', { type: 'button', class: 'small' }, tr('証明のタブで導出を見る →', 'See the derivation on the proofs tab →'));
+      go.addEventListener('click', () => proveIn('bc', seq));
+      byId('m-prove').replaceChildren(...(sys === 'bc' && m.holds ? [go] : []));
       renderModel(byId('m-graph'), m, tr('右辺が真', 'right-hand side true'));
       byId('m-result').hidden = false;
     } catch (e) {

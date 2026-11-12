@@ -13,6 +13,7 @@
 //!   MathJax でも読めるようにする。
 
 use crate::bc;
+use crate::bcfix;
 use crate::bignum::BigNat;
 use crate::bracket::{Bracket, depth_bound};
 use crate::expr;
@@ -1335,30 +1336,35 @@ const SEMANTICS: &[Raw] = &[
         name: ("BC のフレーム", "Frames for BC"),
         lines: &[
             (
-                "括弧語の順序 ◁ を入れ子の深さについての再帰で作る：深さ < d の語の順序 Λ_{<d} が決まっていれば、深さ ≤ d の語 a, b を Λ_{<d} の上の worm と読み、b ◁ a :⟺ RC_{Λ<d} ⊢ a ⊢ ⟨[⊤]⟩b",
-                "the order ◁ of bracket words is built by recursion on nesting depth: once the order Λ_{<d} of words of depth < d is known, words a, b of depth ≤ d are read as worms over Λ_{<d}, and b ◁ a :⟺ RC_{Λ<d} ⊢ a ⊢ ⟨[⊤]⟩b",
+                "BC フレーム (W, (R_a)_a)（a は括弧語すべて）：(B1) R_a は推移的、(B2) b ⊴ a なら R_a ⊆ R_b、(B3) b ◁ a で x R_a y かつ x R_b z ⇒ y R_b z。b ◁ a は BC ⊢ a ⊢ ()b、b ⊴ a は BC ⊢ a ⊢ ()b か BC ⊢ a ⊢ b（BC 自身の導出可能性。順序数は使わない）",
+                "a BC frame (W, (R_a)_a), a ranging over all bracket words: (B1) R_a is transitive, (B2) R_a ⊆ R_b when b ⊴ a, (B3) for b ◁ a, x R_a y and x R_b z ⇒ y R_b z; here b ◁ a means BC ⊢ a ⊢ ()b, and b ⊴ a means BC ⊢ a ⊢ ()b or BC ⊢ a ⊢ b (derivability in BC itself, no ordinals)",
             ),
             (
-                "BC フレーム (W, (R_a)_{a∈B})：(F1) R_a は推移的、(F2) b ≤ a なら R_a ⊆ R_b、(F3) b ◁ a で x R_a y かつ x R_b z ⇒ y R_b z",
-                "a BC frame (W, (R_a)_{a∈B}): (F1) R_a is transitive, (F2) R_a ⊆ R_b when b ≤ a, (F3) for b ◁ a, x R_a y and x R_b z ⇒ y R_b z",
+                "定理（論文の草稿）：BC ⊢ φ ⊢ ψ ⟺ すべての BC フレームで妥当 ⟺ すべての有限の BC フレームで妥当。完全性は BC の標準モデル（点は部分式の理論）で示し、順序数も ◁ の線形性も使わない。副産物として、導出の副条件は結論に出る様相どうしの比較だけで足りる",
+                "theorem (draft): BC ⊢ φ ⊢ ψ iff φ ⊢ ψ is valid in all BC frames iff it is valid in all finite BC frames; completeness uses a canonical model of BC (points are theories of subformulas) and needs neither ordinals nor the linearity of ◁; as a by-product, side conditions only need to compare modalities occurring in the conclusion",
             ),
             (
-                "主張（草稿）：BC ⊢ φ ⊢ ψ ⟺ すべての BC フレームで妥当 ⟺ 有限の閉包モデルの根で ψ が真。どの段にも順序数は出てこない",
-                "claim (draft): BC ⊢ φ ⊢ ψ iff it is valid in all BC frames iff ψ is true at the root of a finite closure model; no ordinals appear anywhere",
+                "定理（線形性、草稿）：◁ は強い弱順序で、Λ = (括弧語 / ≡, ◁) を入れ子の深さの再帰で作ると BC ⊢ φ ⊢ ψ ⟺ RC_Λ ⊢ φ^τ ⊢ ψ^τ（Fernández-Duque & Hermo Reyes の Thm 38 を順序数なしで）",
+                "theorem (linearity, draft): ◁ is a strict weak order, and with Λ = (bracket words / ≡, ◁) built by recursion on nesting, BC ⊢ φ ⊢ ψ iff RC_Λ ⊢ φ^τ ⊢ ψ^τ (Thm 38 of Fernández-Duque & Hermo Reyes without ordinals)",
+            ),
+            (
+                "wormlab の反例：導出できないときは、様相を正規形の括弧語にした閉包モデルを出す（Kripke モデルのタブ）。ほかの括弧語の関係は Euclid 閉包で一度に足せる（拡張補題）",
+                "counterexamples in wormlab: when φ ⊢ ψ is not derivable, wormlab shows the closure model whose modalities are normal-form bracket words (Kripke model tab); the relations of the other bracket words can be added at once by Euclidean closures (extension lemma)",
             ),
         ],
         latex: r"
 \begin{align*}
-&(F1)\ x R_a y R_a z \Rightarrow x R_a z \qquad (F2)\ b \le a \Rightarrow R_a \subseteq R_b\\
-&(F3)\ b \lhd a,\ x R_a y \wedge x R_b z \Rightarrow y R_b z
+&(B1)\ x R_a y R_a z \Rightarrow x R_a z \qquad (B2)\ b \trianglelefteq a \Rightarrow R_a \subseteq R_b\\
+&(B3)\ b \lhd a,\ x R_a y \wedge x R_b z \Rightarrow y R_b z\\
+&\varphi \vdash_{BC} \psi \iff \varphi \vdash \psi \text{ valid in all (finite) BC frames}
 \end{align*}",
         source: (
-            "wormlab の研究ノートと論文の草稿（An autonomous Kripke semantics for the Bracket Calculus、未公開）。問いは Fernández-Duque & Hermo Reyes（arXiv:2008.13445）§10",
-            "wormlab's research notes and draft paper (An autonomous Kripke semantics for the Bracket Calculus, unpublished); the question is from Fernández-Duque & Hermo Reyes (arXiv:2008.13445), §10",
+            "論文の草稿 An autonomous Kripke semantics for the Bracket Calculus（未公開）の §2・§3・§6。問いは Fernández-Duque & Hermo Reyes（arXiv:2008.13445）§10",
+            "the draft paper An autonomous Kripke semantics for the Bracket Calculus (unpublished), §§2, 3 and 6; the question is from Fernández-Duque & Hermo Reyes (arXiv:2008.13445), §10",
         ),
-        related: &["bc-tau", "bc-psi", "rc-frame"],
+        related: &["bc-tau", "bc-psi", "rc-frame", "rc-closure"],
         general: &[],
-        tab: Some("proof"),
+        tab: Some("model"),
         research: true,
     },
     Raw {
@@ -1371,31 +1377,40 @@ const SEMANTICS: &[Raw] = &[
                 "comparison sequents are a ⊢ b and a ⊢ ()b for bracket words a, b; T is a set of them",
             ),
             (
-                "T フレーム (W, (R_a)_{a∈B})：(a ⊢ b) か (a ⊢ ()b) が T に入れば R_a ⊆ R_b、かつ x R_a y R_b z ⇒ x R_b z。(a ⊢ ()b) が T に入れば x R_a y かつ x R_b z ⇒ y R_b z",
-                "a T-frame (W, (R_a)_{a∈B}): if (a ⊢ b) or (a ⊢ ()b) is in T, then R_a ⊆ R_b and x R_a y R_b z ⇒ x R_b z; if (a ⊢ ()b) is in T, then x R_a y and x R_b z ⇒ y R_b z",
+                "T フレーム (W, (R_a)_a)：T の元 (a ⊢ b) か (a ⊢ ()b) ごとに (C1) R_a ⊆ R_b かつ x R_a y R_b z ⇒ x R_b z、(a ⊢ ()b) ならさらに (C2) x R_a y かつ x R_b z ⇒ y R_b z",
+                "a T-frame (W, (R_a)_a): for each (a ⊢ b) or (a ⊢ ()b) in T, (C1) R_a ⊆ R_b and x R_a y R_b z ⇒ x R_b z; for (a ⊢ ()b) moreover (C2) x R_a y and x R_b z ⇒ y R_b z",
             ),
             (
-                "Ψ(T) = すべての T フレームで妥当な比較のシーケントの集合。Ψ は単調",
-                "Ψ(T) is the set of comparison sequents valid in all T-frames; Ψ is monotone",
+                "Ψ(T) = すべての T フレームで妥当な比較のシーケントの集合。T が大きいほどフレームが減るので Ψ は単調",
+                "Ψ(T) is the set of comparison sequents valid in all T-frames; Ψ is monotone, since a larger T leaves fewer frames",
             ),
             (
-                "主張（草稿）：Ψ の不動点はただ 1 つで、それは BC で導出できる比較の全体。深さ d の語どうしの比較は Ψ^d(∅) で出そろう。◁ も RC も順序数も定義に出てこない",
-                "claim (draft): Ψ has exactly one fixed point, namely the set of comparisons derivable in BC, and comparisons of words of depth d appear in Ψ^d(∅); neither ◁ nor RC nor ordinals occur in the definition",
+                "定理 A（論文の草稿）：Ψ の不動点はただ 1 つで、BC で導出できる比較の全体 T_BC。T ⊆ Ψ(T) なら T ⊆ T_BC、Ψ(T) ⊆ T なら T_BC ⊆ T。BC は有限の T_BC フレームで健全かつ完全。入れ子 ≤ n の語どうしの比較は Ψ^n(∅) で出そろう",
+                "Theorem A (draft): Ψ has exactly one fixed point, the set T_BC of comparisons derivable in BC; T ⊆ Ψ(T) implies T ⊆ T_BC, and Ψ(T) ⊆ T implies T_BC ⊆ T; BC is sound and complete for finite T_BC-frames; comparisons between words of nesting ≤ n all appear in Ψ^n(∅)",
+            ),
+            (
+                "証明に使うのは BC と有限フレームと自然数の帰納法だけ。一意性は入れ子の深さの帰納法（深さの単調性：N(c) < N(d) なら c ◁ d）で示し、◁ の整礎性（型 Γ₀、ATR₀ では示せない）は使わない。定義にも ◁・RC・順序数は出てこない",
+                "the proofs use only BC, finite frames and induction on natural numbers; uniqueness is an induction on nesting (monotonicity of nesting: N(c) < N(d) implies c ◁ d), without the well-foundedness of ◁ (of type Γ₀, not provable in ATR₀); neither ◁ nor RC nor ordinals occur in the definition",
+            ),
+            (
+                "有限の U（文字について閉じた語の集合）に制限した Ψ_U も不動点はただ 1 つで、∅ から m 段、全体から m + 1 段で着く（m は U の語の最大の深さ）。括弧の対 9 個以下の 6,918 語まで計算機で確認",
+                "restricted to a finite set U of words closed under letters, Ψ_U also has a unique fixed point, reached in m steps from ∅ and in m + 1 steps from the full set (m the largest nesting in U); checked by computer for all 6,918 words with at most nine pairs of brackets",
             ),
         ],
         latex: r"
 \begin{align*}
-&(a \vdash b) \in T \text{ or } (a \vdash ()b) \in T \Rightarrow R_a \subseteq R_b \text{ and } (x R_a y R_b z \Rightarrow x R_b z)\\
-&(a \vdash ()b) \in T \Rightarrow (x R_a y \wedge x R_b z \Rightarrow y R_b z)\\
-&\Psi(T) = \{\sigma \text{ comparison sequent} : \sigma \text{ valid in all } T\text{-frames}\}
+&(C1)\ (a \vdash b) \in T \text{ or } (a \vdash ()b) \in T \Rightarrow R_a \subseteq R_b,\ R_a ; R_b \subseteq R_b\\
+&(C2)\ (a \vdash ()b) \in T \Rightarrow (x R_a y \wedge x R_b z \Rightarrow y R_b z)\\
+&\Psi(T) = \{\sigma \text{ comparison sequent} : \sigma \text{ valid in all } T\text{-frames}\}\\
+&\Psi(T) = T \iff T = T_{BC}, \qquad T_{BC} = \textstyle\bigcup_n \Psi^n(\emptyset)
 \end{align*}",
         source: (
-            "wormlab の研究ノートと論文の草稿（未公開）。計算機での裏づけは wormlab の bcfix（作業中）",
-            "wormlab's research notes and draft paper (unpublished); computer checks in wormlab's bcfix (in progress)",
+            "論文の草稿 An autonomous Kripke semantics for the Bracket Calculus（未公開）の §4・§5。計算機での裏づけは wormlab の bcfix",
+            "the draft paper An autonomous Kripke semantics for the Bracket Calculus (unpublished), §§4 and 5; computer checks in wormlab's bcfix",
         ),
-        related: &["bc-frame", "bc-tau"],
+        related: &["bc-frame", "bc-tau", "bracket"],
         general: &[],
-        tab: None,
+        tab: Some("model"),
         research: true,
     },
     Raw {
@@ -1621,6 +1636,146 @@ fn rc_ex(s: &str) -> Result<(String, rc::Decision), String> {
     let seq = s.parse::<Sequent<u32>>().map_err(|e| e.to_string())?;
     let d = rc::decide(&seq.lhs, &seq.rhs);
     Ok((format!("{} ⊢ {}{}{}", seq.lhs, seq.rhs, colon(), verdict(d.holds)), d))
+}
+
+/// BC のシーケントを判定した「φ ⊢ ψ：導出できる」。導出できなければ反例の閉包モデルの点の数も。
+fn bc_ex(s: &str) -> Result<String, String> {
+    let q: bc::BSeq = s.parse().map_err(|e: bc::ParseError| e.to_string())?;
+    if bc::decide(&q.lhs, &q.rhs) {
+        return Ok(format!("{q}{}{}", colon(), verdict(true)));
+    }
+    let n = rc::decide(&q.lhs.to_rc(), &q.rhs.to_rc()).model.num_points();
+    Ok(format!("{q}{}{}{}", colon(), verdict(false), t2(format!("（反例 {n} 点）"), format!(" (a counter-model with {n} points)"))))
+}
+
+/// x ⊢ g（g は b か ()b）の BC の標準モデルを作り、BC フレームの条件・真理補題・完全性を確かめた結果。
+fn bc_canonical_ex(x: &str, g: &str) -> Result<String, String> {
+    let (bx, bg) = (bracket(x)?, bracket(g)?);
+    // 標準モデルの検査には、語の接尾辞もそろった U が要る
+    let mut ws = Vec::new();
+    for w in [&bx, &bg] {
+        let mut suf = Bracket::top();
+        for l in w.letters().iter().rev() {
+            suf = suf.prepend(l.clone());
+            ws.push(suf.clone());
+        }
+    }
+    let u = bcfix::Universe::closure(&ws);
+    let t = bcfix::least_fixed_point(&u).theory;
+    let full = bcfix::Oracle::new(&t);
+    let (ix, ig) = (u.id(&bx).ok_or("x")?, u.id(&bg).ok_or("g")?);
+    let index: Vec<usize> = (0..u.len()).collect();
+    let r = bcfix::check_canonical(&u, &t, &full, ix, ig, &index)?;
+    let holds = full.derives(&u, &[ix], ig);
+    Ok(t2(
+        format!("{bx} ⊢ {bg}：Φ は {} 個の式、点（Φ の理論）{} 個。(B1)〜(B3)・真理補題を確認、{}", r.phi, r.worlds, verdict(holds)),
+        format!("{bx} ⊢ {bg}: Φ has {} formulas, {} points (Φ-theories); (B1)–(B3) and the truth lemma hold; {}", r.phi, r.worlds, verdict(holds)),
+    ))
+}
+
+/// 括弧の対が n 個以下の語の上で、Ψ を ∅ から（up）か全体から（!up）不動点まで繰り返した大きさの列。
+fn bc_psi_steps(n: usize, up: bool) -> Result<String, String> {
+    let u = bcfix::Universe::upto_pairs(n);
+    let m = u.len();
+    let mut sizes = if up { vec![0] } else { vec![2 * m * m] };
+    if up {
+        sizes.extend(bcfix::least_fixed_point(&u).sizes);
+    } else {
+        sizes.extend(bcfix::greatest_fixed_point(&u).1);
+    }
+    sizes.dedup();
+    let steps = sizes.len() - 1;
+    let seq = sizes.iter().map(|&x| sep(x)).collect::<Vec<_>>().join(" → ");
+    Ok(t2(format!("対 ≤ {n} の {m} 語：{seq}（{steps} 段で不動点）"), format!("{m} words with ≤ {n} pairs: {seq} (fixed point after {steps} steps)")))
+}
+
+/// 3 桁ごとにカンマを入れた数（1234567 → 1,234,567）。
+fn sep(x: usize) -> String {
+    let d = x.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// 対 ≤ n の語について、入れ子 ≤ d の語どうしの比較が出そろう段。
+fn bc_psi_depths(n: usize) -> Result<Vec<String>, String> {
+    let u = bcfix::Universe::upto_pairs(n);
+    let l = bcfix::least_fixed_point(&u);
+    let depth: Vec<usize> = u.words().iter().map(Bracket::depth).collect();
+    let mut out = Vec::new();
+    for d in [2, 1, 3, 4, 5].into_iter().filter(|&d| d <= n) {
+        let ids: Vec<usize> = (0..u.len()).filter(|&i| depth[i] <= d).collect();
+        let step = ids.iter().flat_map(|&a| ids.iter().map(move |&b| (a, b))).map(|(a, b)| l.first_le[a][b].max(l.first_lt[a][b])).max().unwrap_or(0);
+        out.push(t2(
+            format!("対 ≤ {n}、入れ子 ≤ {d} の {} 語どうし：段 {step}", ids.len()),
+            format!("≤ {n} pairs, the {} words of nesting ≤ {d}: step {step}", ids.len()),
+        ));
+    }
+    Ok(out)
+}
+
+/// 深さの単調性の例：c ◁ d を BC の導出 d ⊢ ()c で確かめる。
+fn bc_depth_ex(c: &str, d: &str) -> Result<String, String> {
+    let (bc_, bd) = (bracket(c)?, bracket(d)?);
+    let f = |s: String| s.parse::<bc::Formula>().map_err(|e| e.to_string());
+    let rhs = if bc_.is_top() { "()".to_string() } else { format!("(){bc_}") };
+    let lhs = if bd.is_top() { "⊤".to_string() } else { bd.to_string() };
+    let holds = bc::decide(&f(lhs.clone())?, &f(rhs.clone())?);
+    let mark = if holds { "◁" } else { "⋪" };
+    let (nc, nd) = (bc_.depth(), bd.depth());
+    Ok(t2(
+        format!("{bc_} {mark} {bd}（N = {nc} < {nd}）：{lhs} ⊢ {rhs} {}", verdict(holds)),
+        format!("{bc_} {mark} {bd} (N = {nc} < {nd}): {lhs} ⊢ {rhs} {}", verdict(holds)),
+    ))
+}
+
+/// μ_n = (…(⊤)…)（n 重）の 2 点フレームで μ_n ⊬ ()μ_n を確かめる。
+fn bc_mu_ex(n: usize) -> Result<String, String> {
+    let u = bcfix::Universe::upto_pairs(n);
+    let t = bcfix::least_fixed_point(&u).theory;
+    let index: Vec<usize> = (0..u.len()).collect();
+    bcfix::check_mu_frame(&u, &t, n, &index)?;
+    let mu = u.word(u.mu(n).ok_or("μ_n")?).to_string();
+    Ok(t2(
+        format!("μ_{n} = {mu}：{mu} ⊢ (){mu} は導出できない（点 1 で μ_{n} が真、()μ_{n} が偽の 2 点の BC フレーム）"),
+        format!("μ_{n} = {mu}: {mu} ⊢ (){mu} is not derivable (a two-point BC frame with μ_{n} true and ()μ_{n} false at point 1)"),
+    ))
+}
+
+/// 論文の注 4.8(ii)：左辺が ⊤ でない比較すべてと ⊤ ⊢ ⊤ からなる T は、Ψ の不動点ではない。
+fn bc_naive_ex() -> Result<Vec<String>, String> {
+    let u = bcfix::Universe::upto_pairs(2);
+    let n = u.len();
+    let top = u.top();
+    let mut t = bcfix::Theory::empty(n);
+    for a in (0..n).filter(|&a| a != top) {
+        for b in 0..n {
+            t.insert_entails(a, b);
+            t.insert_below(b, a);
+        }
+    }
+    t.insert_entails(top, top);
+    let p = bcfix::psi(&u, &t);
+    let one = u.id(&bracket("()")?).ok_or("()")?;
+    let mut out = Vec::new();
+    for b in 0..n {
+        let w = u.word(b);
+        let strict = if w.is_top() { "()".to_string() } else { format!("(){w}") };
+        if t.below(b, one) && !p.below(b, one) {
+            out.push(t2(format!("() ⊢ {strict} は T に入るが Ψ(T) に入らない"), format!("() ⊢ {strict} is in T but not in Ψ(T)")));
+        }
+        if t.entails(one, b) && !p.entails(one, b) {
+            out.push(t2(format!("() ⊢ {w} は T に入るが Ψ(T) に入らない"), format!("() ⊢ {w} is in T but not in Ψ(T)")));
+        }
+    }
+    // 代表は論文の例 () ⊢ ()()
+    out.sort_by_key(|s| !s.starts_with("() ⊢ ()() "));
+    Ok(out)
 }
 
 /// RC_BI のシーケントを判定した「A ⊢ B：導出できる」。
@@ -2442,6 +2597,49 @@ fn examples_of(key: &str) -> Result<Vec<Example>, String> {
             ]
         }
 
+        "bc-frame" => {
+            let d = |s: &&str| bc_ex(s);
+            vec![
+                ex(("(B1) 推移性", "(B1) transitivity"), each(&["(())(())p |- (())p", "((()))((()))p |- ((()))p", "((()()))((()()))q |- ((()()))q"], d)?)?,
+                ex(
+                    ("(B2) b ⊴ a なら R_a ⊆ R_b", "(B2) R_a ⊆ R_b for b ⊴ a"),
+                    each(&["((()))p |- (())p", "(((())))p |- ((()()))p", "((())())p |- ((()))p", "((()))p |- ((())())p"], d)?,
+                )?,
+                ex(
+                    ("(B3) b ◁ a なら x R_a y、x R_b z ⇒ y R_b z", "(B3) for b ◁ a: x R_a y, x R_b z ⇒ y R_b z"),
+                    each(
+                        &[
+                            "((()))p & (())q |- ((()))(p & (())q)",
+                            "(((())))p & ((()))q |- (((())))(p & ((()))q)",
+                            "((()()))p & ((())())q |- ((()()))(p & ((())())q)",
+                        ],
+                        d,
+                    )?,
+                )?,
+                ex(
+                    ("妥当でなければ有限の反例", "not valid: a finite counter-model"),
+                    each(&["(())p |- ((()))p", "((()))p & ((()))q |- ((()))(p & q)", "((()))p |- ((()))((()))p", "((())())p |- (((())))p"], d)?,
+                )?,
+                ex(
+                    ("完全性の証明：BC の標準モデル", "proof of completeness: the canonical model of BC"),
+                    each(&[("(())()", "(())"), ("(())", "()(())"), ("((()))", "()(()())"), ("(()())", "((()))")], |(x, g)| bc_canonical_ex(x, g))?,
+                )?,
+            ]
+        }
+        "bc-psi" => {
+            vec![
+                ex(("Ψ^j(∅)：∅ から上向きに", "Ψ^j(∅): upwards from ∅"), each(&[4, 3, 5], |&n| bc_psi_steps(n, true))?)?,
+                ex(("Ψ^j(Cmp(U))：全体から下向きに", "Ψ^j(Cmp(U)): downwards from all comparisons"), each(&[4, 3, 5], |&n| bc_psi_steps(n, false))?)?,
+                ex(("入れ子 ≤ d の語どうしの比較は段 d で出そろう", "comparisons between words of nesting ≤ d appear by step d"), bc_psi_depths(5)?)?,
+                ex(
+                    ("深さの単調性：N(c) < N(d) なら c ◁ d", "monotonicity of nesting: N(c) < N(d) implies c ◁ d"),
+                    each(&[("()()()()()", "(())"), ("(()()())", "((()))"), ("((()))((()))", "(((())))"), ("⊤", "()")], |(c, d)| bc_depth_ex(c, d))?,
+                )?,
+                ex(("μ_n の 2 点フレーム：μ_n ⊬ ()μ_n", "the two-point frames: μ_n ⊬ ()μ_n"), each(&[2, 1, 3, 4], |&n| bc_mu_ex(n))?)?,
+                ex(("素朴な候補は不動点ではない", "a naive candidate is not a fixed point"), bc_naive_ex()?)?,
+            ]
+        }
+
         // ---- 体系の意味論
         "rc-frame" => {
             let d = |s: &&str| rc_ex(s).map(|(t, _)| t);
@@ -2557,6 +2755,8 @@ pub const KEYS_WITH_EXAMPLES: &[&str] = &[
     "iworm",
     "rcbi-order",
     "bc-tau",
+    "bc-frame",
+    "bc-psi",
     "rc-frame",
     "rc-closure",
     "rcbi-frame",

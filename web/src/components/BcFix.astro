@@ -1,0 +1,305 @@
+---
+// BC の自律的な意味論（研究中、論文の草稿）：不動点 Ψ の反復と、2 つの括弧語の比較。
+// Rust の bcfix（wasm の bc_fixpoint・bc_compare）を呼ぶ。Kripke モデルのタブの中に置く。
+---
+
+<div class="card">
+  <h2 data-en="BC without ordinals: the fixed point Ψ">BC の自律的な意味論：不動点 Ψ</h2>
+  <p
+    class="muted bf-lead"
+    data-en="For a set T of comparison sequents a ⊢ b and a ⊢ ()b, a T-frame is a frame satisfying the conditions that the rules of BC attach to the members of T (inclusion, transitivity, J), and Ψ(T) is the set of comparisons valid in all T-frames. On all words with at most n pairs of brackets, iterating Ψ upwards from ∅ and downwards from all comparisons reaches the same fixed point: the comparisons derivable in BC. Neither ordinals nor an order given in advance are used (research, draft paper)."
+  >
+    比較のシーケント a ⊢ b・a ⊢ ()b の集合 T について、T の比較に BC の規則が課す条件（包含・推移性・J）を満たすフレームを
+    T フレームと呼び、すべての T フレームで妥当な比較の集合を Ψ(T) とします。括弧の対が n 個以下の語すべての上で Ψ を
+    ∅ から上向きに、全体から下向きに繰り返すと、同じ不動点に着きます。それが BC で導出できる比較の全体です。
+    順序数も、前もって与える順序も使いません（研究中、論文の草稿）。
+  </p>
+  <div class="controls">
+    <label for="bf-n" data-en="Pairs of brackets at most">括弧の対の数（以下）</label>
+    <select id="bf-n">
+      <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+      <option value="5" selected>5</option><option value="6">6</option><option value="7">7</option>
+    </select>
+    <button class="primary" id="bf-run" type="button" data-en="Iterate Ψ">Ψ を繰り返す</button>
+  </div>
+  <div class="def-links">
+    <span data-en="Definitions:">定義：</span>
+    <button type="button" class="small" data-def="bc-psi" data-en="the fixed point Ψ">不動点 Ψ</button>
+    <button type="button" class="small" data-def="bc-frame" data-en="BC frames">BC のフレーム</button>
+  </div>
+  <div class="status" id="bf-status" aria-live="polite"></div>
+  <div id="bf-result" hidden>
+    <div class="verdict" id="bf-summary"></div>
+    <div id="bf-chart"></div>
+    <div class="bf-tables">
+      <table class="bf" id="bf-steps"></table>
+      <table class="bf" id="bf-depths"></table>
+    </div>
+    <div class="muted bf-note" id="bf-checks"></div>
+    <details>
+      <summary id="bf-order-title"></summary>
+      <ol class="seq bf-classes" id="bf-classes"></ol>
+    </details>
+  </div>
+</div>
+
+<div class="card">
+  <h2 data-en="Compare two bracket words with Ψ">2 つの括弧語を Ψ で比べる</h2>
+  <p
+    class="muted bf-lead"
+    data-en="Computes the fixed point of Ψ only on the set U of a, b, their letters, the letters of those letters, and so on (Proposition 5.1 of the draft), and reads off the comparison. The ordinal o* is shown only for reference."
+  >
+    a と b、その文字、文字の文字…だけの集合 U の上で Ψ の不動点を計算して比べます（論文の草稿の命題 5.1）。
+    順序数 o* は参考に並べるだけで、計算には使いません。
+  </p>
+  <div class="controls">
+    <input type="text" id="bf-a" value="(()())" aria-label="括弧語 a" data-en-aria-label="Bracket word a" />
+    <input type="text" id="bf-b" value="(())(())(())" aria-label="括弧語 b" data-en-aria-label="Bracket word b" />
+    <button class="primary" id="bf-cmp" type="button" data-en="Compare">比べる</button>
+  </div>
+  <div class="examples" id="bf-examples"></div>
+  <div class="status" id="bf-cstatus" aria-live="polite"></div>
+  <div id="bf-cresult" hidden>
+    <div class="verdict" id="bf-rel"></div>
+    <table class="kv bf-seqs" id="bf-seqs"></table>
+    <div class="muted bf-note" id="bf-cnote"></div>
+    <details id="bf-u-wrap">
+      <summary id="bf-u-title"></summary>
+      <ol class="seq bf-classes" id="bf-u"></ol>
+    </details>
+  </div>
+</div>
+
+<script>
+  import { call, nextFrame } from '../lib/wasm';
+  import { busyText, byId, exampleButtons, h, setStatus } from '../lib/dom';
+  import { onLang, tr } from '../lib/i18n';
+  import { fixpointChart, fmtCount } from '../lib/charts';
+
+  interface ClassJson {
+    words: string[];
+    size: number;
+    depth: number;
+    ordinal: string;
+  }
+  interface FixJson {
+    pairs: number;
+    words: number;
+    full: number;
+    fixed: number;
+    up: number[];
+    down: number[];
+    steps_up: number;
+    steps_down: number;
+    same: boolean;
+    by_step: { step: number; new: number; new_strict: number }[];
+    by_depth: { depth: number; words: number; comparisons: number; step: number }[];
+    classes: ClassJson[];
+    violations: { irreflexive: number; transitive: number; trichotomy: number };
+    check: { pairs: number; syntactic: number; ordinal: number; equivalence: number };
+  }
+  interface CmpJson {
+    a: string;
+    b: string;
+    relation: '<' | '=' | '>';
+    sequents: { sequent: string; holds: boolean; step: number | null }[];
+    depth_a: number;
+    depth_b: number;
+    words: number;
+    steps: number;
+    classes: ClassJson[] | null;
+    syntactic_agrees: boolean;
+    ordinal_a: string;
+    ordinal_b: string;
+    ordinal_agrees: boolean;
+  }
+
+  const N = byId<HTMLSelectElement>('bf-n');
+  const status = byId('bf-status');
+  const A = byId<HTMLInputElement>('bf-a');
+  const B = byId<HTMLInputElement>('bf-b');
+  const cstatus = byId('bf-cstatus');
+  /** 一度でも実行したか（言語を切り替えたら出し直す） */
+  let ranFix = false;
+  let ranCmp = false;
+
+  const PAIRS: [string, string][] = [
+    ['(()())', '(())(())(())'],
+    ['(())()', '(())'],
+    ['((()))', '()(())'],
+    ['(((())))', '((()()))'],
+    ['()()()()()', '(())'],
+    ['((())())', '(()(()))'],
+    ['(()(()))', '((()))'],
+    ['((()))((()))', '(((())))'],
+    ['(()()())', '(()())()'],
+    ['⊤', '()'],
+  ];
+
+  /** ≡ の類の一覧（語は「≡」でつなぎ、参考の o* を添える）。`mark` の語は目立たせる。 */
+  function classItems(list: HTMLElement, classes: ClassJson[], mark: string[] = []) {
+    list.replaceChildren(
+      ...classes.map((c) => {
+        const words = c.words.flatMap((w, i) => [
+          ...(i ? [' ≡ '] : []),
+          mark.includes(w) ? h('mark', {}, w) : w,
+        ]);
+        const rest = c.size > c.words.length ? [tr(` ≡ …（ほか ${c.size - c.words.length} 語）`, ` ≡ … (${c.size - c.words.length} more)`)] : [];
+        return h(
+          'li',
+          {},
+          ...words,
+          ...rest,
+          h('span', { class: 'o', title: tr('参考：順序数 o*（計算には使っていない）', 'for reference: the ordinal o* (not used in the computation)') }, `N = ${c.depth} · o* = ${c.ordinal}`),
+        );
+      }),
+    );
+  }
+
+  function table(el: HTMLElement, caption: string, head: string[], rows: (string | number)[][]) {
+    el.replaceChildren(
+      h('caption', {}, caption),
+      h('tr', {}, ...head.map((x) => h('th', {}, x))),
+      ...rows.map((r) => h('tr', {}, ...r.map((x) => h('td', {}, typeof x === 'number' ? fmtCount(x) : x)))),
+    );
+  }
+
+  async function runFix() {
+    ranFix = true;
+    const n = Number(N.value);
+    setStatus(status, busyText() + (n >= 7 ? tr('（数秒かかることがあります）', ' (this may take a few seconds)') : ''));
+    await nextFrame();
+    try {
+      const r = await call<FixJson>((api) => api.bc_fixpoint!(n));
+      setStatus(status, '');
+      byId('bf-summary').replaceChildren(
+        h('span', { class: r.same ? 'yes' : 'no' }, r.same ? tr('同じ不動点：', 'Same fixed point: ') : tr('不動点が違う：', 'Different fixed points: ')),
+        tr(
+          `対 ≤ ${r.pairs} の ${fmtCount(r.words)} 語。比較のシーケント ${fmtCount(r.full)} 個のうち ${fmtCount(r.fixed)} 個が不動点に入る（∅ から ${r.steps_up} 段、全体から ${r.steps_down} 段）。≡ の類は ${r.classes.length} 個`,
+          `${fmtCount(r.words)} words with ≤ ${r.pairs} pairs. Of the ${fmtCount(r.full)} comparison sequents, ${fmtCount(r.fixed)} are in the fixed point (${r.steps_up} steps from ∅, ${r.steps_down} steps from all). There are ${r.classes.length} ≡-classes.`,
+        ),
+      );
+      byId('bf-result').hidden = false;
+      fixpointChart(byId('bf-chart'), r.up.slice(0, r.steps_up + 1), r.down.slice(0, r.steps_down + 1), r.fixed);
+      table(
+        byId('bf-steps'),
+        tr('段ごとに新しく入った比較', 'Comparisons entering at each step'),
+        [tr('段 j', 'step j'), 'Ψ^j(∅)', tr('新しい比較', 'new'), tr('うち a ⊢ ()b', 'of which a ⊢ ()b')],
+        r.by_step.map((x) => [x.step, r.up[x.step], x.new, x.new_strict]),
+      );
+      table(
+        byId('bf-depths'),
+        tr('入れ子 ≤ d の語どうしの比較が出そろう段', 'Step by which comparisons between words of nesting ≤ d are complete'),
+        [tr('入れ子 d', 'nesting d'), tr('語', 'words'), tr('比較', 'comparisons'), tr('段', 'step')],
+        r.by_depth.map((x) => [x.depth, x.words, x.comparisons, x.step]),
+      );
+      const v = r.violations;
+      const c = r.check;
+      byId('bf-checks').textContent = [
+        tr(
+          `順序の違反（非反射・推移・三分）：${v.irreflexive}・${v.transitive}・${v.trichotomy}。`,
+          `Order violations (irreflexivity, transitivity, trichotomy): ${v.irreflexive}, ${v.transitive}, ${v.trichotomy}.`,
+        ),
+        c.syntactic === 0 && c.equivalence === 0
+          ? tr(
+              `順序数を使わない構文的な比較（BracketOrder）と全 ${fmtCount(c.pairs)} 組で一致。`,
+              `Agrees with the ordinal-free syntactic comparison (BracketOrder) on all ${fmtCount(c.pairs)} pairs.`,
+            )
+          : tr(`構文的な比較と ${c.syntactic + c.equivalence} 組で食い違い（バグです）。`, `${c.syntactic + c.equivalence} disagreements with the syntactic comparison (a bug).`),
+        c.ordinal === 0
+          ? tr('参考：順序数 o* による比較とも一致。', 'For reference, it also agrees with comparing the ordinals o*.')
+          : tr(`順序数による比較と ${c.ordinal} 組で食い違い（バグです）。`, `${c.ordinal} disagreements with the ordinals (a bug).`),
+      ].join(' ');
+      byId('bf-order-title').textContent = tr(
+        `できた順序：≡ の類 ${r.classes.length} 個を ◁ の小さい順に`,
+        `The resulting order: the ${r.classes.length} ≡-classes in increasing ◁-order`,
+      );
+      classItems(byId('bf-classes'), r.classes);
+    } catch (e) {
+      setStatus(status, e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
+  async function runCmp() {
+    ranCmp = true;
+    setStatus(cstatus, busyText());
+    await nextFrame();
+    try {
+      const r = await call<CmpJson>((api) => api.bc_compare!(A.value, B.value));
+      setStatus(cstatus, '');
+      const sym = r.relation === '<' ? '◁' : r.relation === '>' ? '▷' : '≡';
+      const says =
+        r.relation === '<'
+          ? tr(`（${r.b} ⊢ ()${r.a === '⊤' ? '' : r.a} が導出できる）`, ` (${r.b} ⊢ ()${r.a === '⊤' ? '' : r.a} is derivable)`)
+          : r.relation === '>'
+            ? tr(`（${r.a} ⊢ ()${r.b === '⊤' ? '' : r.b} が導出できる）`, ` (${r.a} ⊢ ()${r.b === '⊤' ? '' : r.b} is derivable)`)
+            : tr('（互いに ⊢ が導出できる）', ' (each derives the other)');
+      byId('bf-rel').replaceChildren(h('span', { class: 'yes' }, `${r.a} ${sym} ${r.b}`), says);
+      byId('bf-seqs').replaceChildren(
+        ...r.sequents.map((q) =>
+          h(
+            'tr',
+            {},
+            h('th', {}, q.sequent),
+            h(
+              'td',
+              {},
+              q.holds
+                ? tr(`段 ${q.step} で Ψ^${q.step}(∅) に入る`, `enters Ψ^${q.step}(∅) at step ${q.step}`)
+                : tr('入らない（導出できない）', 'never enters (not derivable)'),
+            ),
+          ),
+        ),
+      );
+      byId('bf-cnote').textContent = [
+        tr(
+          `U = {⊤, a, b} の文字の閉包：${r.words} 語。∅ から ${r.steps} 段で不動点（N(a) = ${r.depth_a}、N(b) = ${r.depth_b}）。`,
+          `U = the closure of {⊤, a, b} under letters: ${r.words} words; fixed point after ${r.steps} steps from ∅ (N(a) = ${r.depth_a}, N(b) = ${r.depth_b}).`,
+        ),
+        r.syntactic_agrees
+          ? tr('順序数を使わない構文的な比較（BracketOrder）と一致。', 'Agrees with the ordinal-free syntactic comparison (BracketOrder).')
+          : tr('構文的な比較と食い違い（バグです）。', 'Disagrees with the syntactic comparison (a bug).'),
+        tr(`参考：o*(a) = ${r.ordinal_a}、o*(b) = ${r.ordinal_b}`, `For reference: o*(a) = ${r.ordinal_a}, o*(b) = ${r.ordinal_b}`) +
+          (r.ordinal_agrees ? tr('（同じ大小）。', ' (the same order).') : tr('（大小が食い違う。バグです）。', ' (a different order: a bug).')),
+      ].join(' ');
+      const wrap = byId('bf-u-wrap');
+      wrap.hidden = !r.classes;
+      if (r.classes) {
+        byId('bf-u-title').textContent = tr(`U の ${r.words} 語の順序（≡ の類を ◁ の小さい順に）`, `The order of the ${r.words} words of U (≡-classes in increasing ◁-order)`);
+        classItems(byId('bf-u'), r.classes, [r.a, r.b]);
+      }
+      byId('bf-cresult').hidden = false;
+    } catch (e) {
+      setStatus(cstatus, e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
+  function fillExamples() {
+    exampleButtons(
+      byId('bf-examples'),
+      PAIRS.map(([a, b]) => ({
+        label: `${a} , ${b}`,
+        run: () => {
+          A.value = a;
+          B.value = b;
+          runCmp();
+        },
+      })),
+    );
+  }
+
+  byId('bf-run').addEventListener('click', runFix);
+  byId('bf-cmp').addEventListener('click', runCmp);
+  for (const el of [A, B]) {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') runCmp();
+    });
+  }
+  fillExamples();
+
+  onLang(() => {
+    fillExamples();
+    if (ranFix) runFix();
+    if (ranCmp) runCmp();
+  });
+</script>

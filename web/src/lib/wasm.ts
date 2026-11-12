@@ -46,6 +46,12 @@ export interface Api {
   glossary?: () => string;
   /** 文字が自然数の worm の基本列 A{n} の図の材料（定義のタブ。古い wasm にはない） */
   worm_fs_figure?: (input: string, n: number) => string;
+  /** BC の反例モデル：様相を正規形の括弧語にした閉包モデルと、BC フレームの条件の検査（古い wasm にはない） */
+  bc_model?: (input: string) => string;
+  /** BC の自律的な意味論：括弧の対が n 個以下の語で Ψ を ∅ から・全体から不動点まで（古い wasm にはない） */
+  bc_fixpoint?: (n: number) => string;
+  /** 2 つの括弧語を、文字の閉包の上の Ψ の不動点で比べる（古い wasm にはない） */
+  bc_compare?: (a: string, b: string) => string;
   /** 隠し機能：ロゴの worm の battle の step ステップ目（古い wasm にはない） */
   logo_worm?: (step: number) => string;
 }

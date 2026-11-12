@@ -44,7 +44,7 @@
 
 <script>
   import { call, nextFrame } from '../lib/wasm';
-  import { busyText, byId, examples, h, PROVE_EVENT, setStatus, showRules } from '../lib/dom';
+  import { busyText, byId, examples, h, PROVE_EVENT, setStatus, showRules, type ProveRequest } from '../lib/dom';
   import { onLang, tr } from '../lib/i18n';
   import { renderProof, type ProofJson } from '../lib/proof';
   import { ruleTexts } from '../lib/rules';
@@ -203,11 +203,18 @@
   byId('p-rules').addEventListener('click', () => showRules(system.value));
   // 規則のタブの「この体系で証明する」から来たとき
   window.addEventListener(PROVE_EVENT, (e) => {
-    const id = (e as CustomEvent<string>).detail;
-    if (id && id !== system.value && EXAMPLES[id]) {
+    const req = (e as CustomEvent<ProveRequest>).detail;
+    const id = typeof req === 'string' ? req : req?.id;
+    if (!id || !EXAMPLES[id]) return;
+    if (id !== system.value) {
       system.value = id;
       input.value = EXAMPLES[id][0];
       fillExamples();
+    }
+    // シーケントも渡されたら、それを入れて証明する
+    if (typeof req !== 'string') {
+      input.value = req.sequent;
+      run();
     }
   });
   byId('p-run').addEventListener('click', run);

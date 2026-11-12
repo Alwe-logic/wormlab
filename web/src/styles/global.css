@@ -1909,3 +1909,95 @@ button.hs-toast.bad {
     animation: none;
   }
 }
+
+/* BC の自律的な意味論（BcFix.astro）：Ψ の反復の折れ線・表・順序の一覧 */
+.bf-lead {
+  font-size: 13px;
+  margin: 0 0 12px;
+  max-width: 75ch;
+}
+
+.bf-note {
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.fx-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 10px;
+}
+
+.fx-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fx-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.bf-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px 28px;
+  margin: 8px 0;
+}
+
+table.bf {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+  font-family: var(--mono);
+}
+
+table.bf caption {
+  caption-side: top;
+  text-align: left;
+  color: var(--text-secondary);
+  font-family: var(--font-dot);
+  padding-bottom: 4px;
+}
+
+table.bf th,
+table.bf td {
+  padding: 4px 8px;
+  border-bottom: 1px dashed var(--grid);
+  text-align: right;
+}
+
+table.bf th {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+ol.bf-classes {
+  max-height: 24em;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+ol.bf-classes .o {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: 0.8em;
+  white-space: nowrap;
+}
+
+ol.bf-classes mark {
+  background: none;
+  color: var(--accent);
+}
+
+table.bf-seqs th {
+  width: 55%;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}

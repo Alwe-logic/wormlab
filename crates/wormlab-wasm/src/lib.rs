@@ -18,6 +18,8 @@ use wasm_bindgen::prelude::*;
 use wormlab_core::arith;
 use wormlab_core::bignum::BigNat;
 use wormlab_core::bc::{self, BSeq};
+use wormlab_core::bcfix;
+use wormlab_core::bracket::NfBracket;
 use wormlab_core::bwc::{self, BwSeq};
 use wormlab_core::cworm::{self, CWorm, Shape};
 use wormlab_core::expr;
@@ -1298,6 +1300,303 @@ pub fn rcbi_compare(a: &str, b: &str) -> String {
     })())
 }
 
+// ----------------------------------------------------------------------
+// BC の自律的な意味論（bcfix）と反例モデル
+// ----------------------------------------------------------------------
+
+/// Ψ の反復で扱う語の、括弧の対の数の上限（7 個で 626 語。8 個の 2,056 語はブラウザでは数秒かかる）。
+const MAX_FIX_PAIRS: u32 = 7;
+/// 1 つの ≡ の類について見せる語の数。
+const CLASS_SHOWN: usize = 6;
+/// 2 つの語を比べるときの、1 つの語の括弧の対の数の上限。
+const MAX_CMP_PAIRS: usize = 40;
+/// 2 つの語を比べるとき、U の語を並べて見せる上限。
+const MAX_CMP_SHOWN: usize = 60;
+
+/// 括弧語 b について、比較のシーケントの右辺 ()b の書き方。
+fn diamond_top(b: &Bracket) -> String {
+    if b.is_top() { "()".to_string() } else { format!("(){b}") }
+}
+
+/// 段の列で、不動点に初めて着いた段（1 から数える）。
+fn first_stable(sizes: &[usize]) -> usize {
+    let last = sizes.last().copied().unwrap_or(0);
+    sizes.iter().position(|&s| s == last).map_or(0, |i| i + 1)
+}
+
+/// U の語を、不動点 T の ≡ の類に分けて ◁ の小さい方から並べる。各類は語の短い順。
+fn class_list(u: &bcfix::Universe, t: &bcfix::Theory, shown: usize) -> Vec<Value> {
+    t.classes()
+        .into_iter()
+        .map(|mut cl| {
+            cl.sort_by_key(|&i| (u.word(i).pairs(), u.word(i).to_string()));
+            let first = u.word(cl[0]);
+            json!({
+                "words": cl.iter().take(shown).map(|&i| u.word(i).to_string()).collect::<Vec<_>>(),
+                "size": cl.len(),
+                "depth": first.depth(),
+                // 参考：順序数 o*（計算には使っていない。照合だけ）
+                "ordinal": first.ordinal().to_string(),
+            })
+        })
+        .collect()
+}
+
+/// BC の自律的な意味論：括弧の対が `n` 個以下の語すべての集合 U の上で、Ψ を ∅ から上向きに、
+/// 全体 Cmp(U) から下向きに不動点まで反復する。
+///
+/// 返す JSON：各段の大きさ（up・down）、段ごとに新しく入った比較の数、深さ d の語どうしの比較が
+/// 出そろう段、≡ の類を ◁ の順に並べたもの（参考の o* つき）、順序の違反の数、
+/// 順序数を使わない構文的な比較（BracketOrder）・順序数 o* による比較との照合。
+#[wasm_bindgen]
+pub fn bc_fixpoint(n: u32) -> String {
+    out(bc_fixpoint_impl(n))
+}
+
+fn bc_fixpoint_impl(n: u32) -> Result<Value, String> {
+    if n == 0 || n > MAX_FIX_PAIRS {
+        return Err(if i18n::is_en() {
+            format!("the number of pairs must be between 1 and {MAX_FIX_PAIRS}")
+        } else {
+            format!("括弧の対の数は 1 以上 {MAX_FIX_PAIRS} 以下にしてください")
+        });
+    }
+    let u = bcfix::Universe::upto_pairs(n as usize);
+    let m = u.len();
+    let lfp = bcfix::least_fixed_point(&u);
+    let (gfp, down) = bcfix::greatest_fixed_point(&u);
+    let t = &lfp.theory;
+    let depth: Vec<usize> = u.words().iter().map(Bracket::depth).collect();
+    let steps_up = first_stable(&lfp.sizes);
+
+    // 段 j で初めて入った比較の数（a ⊢ b と a ⊢ ()b）
+    let mut new_le = vec![0usize; steps_up + 1];
+    let mut new_lt = vec![0usize; steps_up + 1];
+    // 深さ ≤ d の語どうしの比較が出そろう段
+    let mut by_depth = vec![0u16; n as usize + 1];
+    let mut count_depth = vec![0usize; n as usize + 1];
+    for a in 0..m {
+        for b in 0..m {
+            let (le, lt) = (lfp.first_le[a][b], lfp.first_lt[a][b]);
+            if le > 0 {
+                new_le[le as usize] += 1;
+            }
+            if lt > 0 {
+                new_lt[lt as usize] += 1;
+            }
+            let d = depth[a].max(depth[b]);
+            let s = le.max(lt);
+            for e in d.max(1)..=n as usize {
+                by_depth[e] = by_depth[e].max(s);
+                count_depth[e] += usize::from(le > 0) + usize::from(lt > 0);
+            }
+        }
+    }
+    let by_step: Vec<Value> = (1..=steps_up)
+        .map(|j| json!({ "step": j, "new": new_le[j] + new_lt[j], "new_strict": new_lt[j] }))
+        .collect();
+    let by_depth: Vec<Value> = (1..=n as usize)
+        .map(|d| {
+            json!({
+                "depth": d,
+                "words": depth.iter().filter(|&&x| x <= d).count(),
+                "comparisons": count_depth[d],
+                "step": by_depth[d],
+            })
+        })
+        .collect();
+
+    // 照合：順序数を使わない構文的な比較（BracketOrder）と、順序数 o* による比較。
+    // 構文的な比較は全組だと重い（626 語で約 1 秒）ので、その比較で並べて順位を付け、順位どうしを比べる
+    let mut idx: Vec<usize> = (0..m).collect();
+    idx.sort_by(|&a, &b| u.word(a).cmp_syntactic(u.word(b)));
+    let mut rank = vec![0usize; m];
+    for k in 1..m {
+        let same = u.word(idx[k - 1]).cmp_syntactic(u.word(idx[k])) == std::cmp::Ordering::Equal;
+        rank[idx[k]] = rank[idx[k - 1]] + usize::from(!same);
+    }
+    let ords: Vec<Veblen> = u.words().iter().map(Bracket::ordinal).collect();
+    let rel = |a: usize, b: usize| {
+        if t.below(a, b) {
+            std::cmp::Ordering::Less
+        } else if t.below(b, a) {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    };
+    let (mut bad_syn, mut bad_ord, mut bad_eqv) = (0usize, 0usize, 0usize);
+    for a in 0..m {
+        for b in 0..m {
+            let r = rel(a, b);
+            if rank[a].cmp(&rank[b]) != r {
+                bad_syn += 1;
+            }
+            if ords[a].cmp(&ords[b]) != r {
+                bad_ord += 1;
+            }
+            // どちらでもない ⟺ 互いに ⊢
+            if (r == std::cmp::Ordering::Equal) != (t.entails(a, b) && t.entails(b, a)) {
+                bad_eqv += 1;
+            }
+        }
+    }
+    let (irr, trans, tri) = t.order_violations();
+    Ok(json!({
+        "pairs": n,
+        "words": m,
+        "full": 2 * m * m,
+        "fixed": t.len(),
+        "up": std::iter::once(0).chain(lfp.sizes.iter().copied()).collect::<Vec<_>>(),
+        "down": std::iter::once(2 * m * m).chain(down.iter().copied()).collect::<Vec<_>>(),
+        "steps_up": steps_up,
+        "steps_down": first_stable(&down),
+        "same": gfp == *t,
+        "by_step": by_step,
+        "by_depth": by_depth,
+        "classes": class_list(&u, t, CLASS_SHOWN),
+        "violations": { "irreflexive": irr, "transitive": trans, "trichotomy": tri },
+        "check": { "pairs": m * m, "syntactic": bad_syn, "ordinal": bad_ord, "equivalence": bad_eqv },
+    }))
+}
+
+/// 2 つの括弧語 a, b を、U = {⊤, a, b} の文字について閉じた集合の上の Ψ の不動点で比べる
+/// （論文の命題 5.1：比較は a, b の文字の閉包の上の有限の計算で決まる）。
+#[wasm_bindgen]
+pub fn bc_compare(a: &str, b: &str) -> String {
+    out(bc_compare_impl(a, b))
+}
+
+fn bc_compare_impl(a: &str, b: &str) -> Result<Value, String> {
+    let parse = |s: &str| -> Result<Bracket, String> {
+        let w: Bracket = s.trim().parse().map_err(|e: wormlab_core::bracket::ParseBracketError| e.to_string())?;
+        if w.pairs() > MAX_CMP_PAIRS {
+            return Err(if i18n::is_en() {
+                format!("the word is too long ({} pairs of brackets > {MAX_CMP_PAIRS})", w.pairs())
+            } else {
+                format!("語が長すぎます（括弧の対 {} 個 > {MAX_CMP_PAIRS}）", w.pairs())
+            });
+        }
+        Ok(w)
+    };
+    let (x, y) = (parse(a)?, parse(b)?);
+    let u = bcfix::Universe::closure(&[x.clone(), y.clone()]);
+    let lfp = bcfix::least_fixed_point(&u);
+    let t = &lfp.theory;
+    let (ia, ib) = (u.id(&x).unwrap_or(0), u.id(&y).unwrap_or(0));
+    let seq = |l: usize, r: usize, strict: bool| {
+        let step = if strict { lfp.first_lt[l][r] } else { lfp.first_le[l][r] };
+        let rhs = if strict { diamond_top(u.word(r)) } else { u.word(r).to_string() };
+        json!({ "sequent": format!("{} ⊢ {}", u.word(l), rhs), "holds": step > 0, "step": (step > 0).then_some(step) })
+    };
+    let relation = if t.below(ia, ib) {
+        "<"
+    } else if t.below(ib, ia) {
+        ">"
+    } else {
+        "="
+    };
+    let expect = match relation {
+        "<" => std::cmp::Ordering::Less,
+        ">" => std::cmp::Ordering::Greater,
+        _ => std::cmp::Ordering::Equal,
+    };
+    let classes = class_list(&u, t, CLASS_SHOWN);
+    let shown = u.len() <= MAX_CMP_SHOWN;
+    Ok(json!({
+        "a": x.to_string(),
+        "b": y.to_string(),
+        "relation": relation,
+        "sequents": [seq(ia, ib, true), seq(ib, ia, true), seq(ia, ib, false), seq(ib, ia, false)],
+        "depth_a": x.depth(),
+        "depth_b": y.depth(),
+        "words": u.len(),
+        "steps": first_stable(&lfp.sizes),
+        "sizes": lfp.sizes,
+        "classes": shown.then_some(classes),
+        "syntactic_agrees": x.cmp_syntactic(&y) == expect,
+        "ordinal_a": x.ordinal().to_string(),
+        "ordinal_b": y.ordinal().to_string(),
+        "ordinal_agrees": x.ordinal().cmp(&y.ordinal()) == expect,
+    }))
+}
+
+/// 閉包モデルが BC-フレームの条件 (B1)〜(B3) を、式に出る添字（正規形の括弧語）の上で満たすかの
+/// 違反の数。添字の比較は順序数を使わない構文的な比較（NfBracket の Ord）。大きいモデルは数えない。
+fn bc_frame_violations(m: &rc::Model<NfBracket>) -> Option<[usize; 3]> {
+    let n = m.num_points();
+    let sig = m.signature();
+    if n > 80 || sig.len() > 16 {
+        return None;
+    }
+    let mut v = [0usize; 3];
+    for a in sig {
+        for x in 0..n {
+            for y in 0..n {
+                if !m.related(a, x, y) {
+                    continue;
+                }
+                for z in 0..n {
+                    if m.related(a, y, z) && !m.related(a, x, z) {
+                        v[0] += 1;
+                    }
+                }
+                for b in sig.iter().filter(|b| *b < a) {
+                    // (B2) b ◁ a なら R_a ⊆ R_b、(B3) x R_a y、x R_b z ⇒ y R_b z
+                    if !m.related(b, x, y) {
+                        v[1] += 1;
+                    }
+                    for z in 0..n {
+                        if m.related(b, x, z) && !m.related(b, y, z) {
+                            v[2] += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some(v)
+}
+
+/// BC の反例モデル：BC の式 φ か シーケント φ ⊢ ψ を受け取り、モダリティを正規形の括弧語にした
+/// 閉包モデル（関係の名前は括弧語、比較は順序数を使わない）を返す。BC-フレームの条件の検査つき。
+#[wasm_bindgen]
+pub fn bc_model(input: &str) -> String {
+    out(bc_model_impl(input))
+}
+
+fn bc_model_impl(input: &str) -> Result<Value, String> {
+    if input.chars().count() > 400 {
+        return Err(tr("式が長すぎます（400 文字まで）", "the input is too long (at most 400 characters)").to_string());
+    }
+    let (l, r) = match input.split_once("⊢").or_else(|| input.split_once("|-")) {
+        Some((l, r)) => (l, Some(r)),
+        None => (input, None),
+    };
+    let a: bc::Formula = l.trim().parse().map_err(|e: bc::ParseError| e.to_string())?;
+    let b: Option<bc::Formula> = r.map(|r| r.trim().parse()).transpose().map_err(|e: bc::ParseError| e.to_string())?;
+    let (ra, rb) = (a.to_rc(), b.as_ref().map(bc::Formula::to_rc));
+    let (model, holds) = match &rb {
+        Some(rb) => {
+            let d = rc::decide(&ra, rb);
+            (d.model, Some(d.holds))
+        }
+        None => (rc::Model::canonical(&ra, &ra.modalities()), None),
+    };
+    let mut v = rc_model_json(&model, rb.as_ref());
+    // 式だけ（シーケントでない）なら成り立つかは書かない
+    if let Some(h) = holds {
+        v["holds"] = json!(h);
+    }
+    v["title"] = json!(match &b {
+        Some(b) => format!("{a} ⊢ {b}"),
+        None => a.to_string(),
+    });
+    v["signature"] = json!(model.signature().iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    v["bc_frame_violations"] = json!(bc_frame_violations(&model));
+    Ok(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1598,6 +1897,67 @@ mod tests {
     }
 
     #[test]
+    fn bc_fixpoint_iteration() {
+        // 対 4 個以下の 23 語：上向き 4 段・下向き 5 段で同じ不動点、504 個の比較、17 個の類
+        let v = parse(&bc_fixpoint(4));
+        assert_eq!(v["words"], 23);
+        assert_eq!(v["fixed"], 504);
+        assert_eq!(v["steps_up"], 4);
+        assert_eq!(v["steps_down"], 5);
+        assert_eq!(v["same"], true);
+        assert_eq!(v["classes"].as_array().unwrap().len(), 17);
+        assert_eq!(v["up"][0], 0);
+        assert_eq!(v["down"][0], 2 * 23 * 23);
+        for d in 1..=4 {
+            assert_eq!(v["by_depth"][d - 1]["step"], d, "深さ {d} の比較は段 {d} で出そろう");
+        }
+        assert_eq!(v["violations"], json!({ "irreflexive": 0, "transitive": 0, "trichotomy": 0 }));
+        assert_eq!(v["check"]["syntactic"], 0);
+        assert_eq!(v["check"]["ordinal"], 0);
+        assert_eq!(v["check"]["equivalence"], 0);
+        // 類は ◁ の小さい順：⊤、()、()()、… 。o* は参考
+        assert_eq!(v["classes"][0]["words"], json!(["⊤"]));
+        assert_eq!(v["classes"][1]["ordinal"], "1");
+        assert!(parse(&bc_fixpoint(8)).get("error").is_some());
+    }
+
+    #[test]
+    fn bc_compare_words() {
+        let v = parse(&bc_compare("(())()", "(())"));
+        assert_eq!(v["relation"], "=");
+        assert_eq!(v["syntactic_agrees"], true);
+        assert_eq!(v["ordinal_agrees"], true);
+        let v = parse(&bc_compare("(())(())(())", "(()())"));
+        assert_eq!(v["relation"], "<"); // ω³ < ω^ω
+        assert_eq!(v["sequents"][1]["sequent"], "(()()) ⊢ ()(())(())(())");
+        assert_eq!(v["sequents"][1]["holds"], true);
+        assert_eq!(v["sequents"][0]["holds"], false);
+        // 決め手の比較が入る段は、U の語の入れ子の深さ以下
+        assert!(v["sequents"][1]["step"].as_u64().unwrap() <= 2);
+        let v = parse(&bc_compare("((()))", "()(())"));
+        assert_eq!(v["relation"], ">"); // ε₀ > ω + 1
+        assert_eq!(v["ordinal_a"], "ε_0");
+        assert!(parse(&bc_compare("(()", "()")).get("error").is_some());
+    }
+
+    #[test]
+    fn bc_countermodel() {
+        // 導出できない：反例の閉包モデルで (B1)〜(B3) の違反なし
+        let v = parse(&bc_model("(())p |- ((()))p"));
+        assert_eq!(v["holds"], false);
+        assert_eq!(v["bc_frame_violations"], json!([0, 0, 0]));
+        // (a)φ のモダリティは a：(())p は R_() の後続で p
+        assert_eq!(v["signature"], json!(["()", "(())"]));
+        assert!(v["relations"].as_array().unwrap().iter().any(|r| r["name"] == "R_(())"));
+        let v = parse(&bc_model("((()))p |- ()(())p"));
+        assert_eq!(v["holds"], true);
+        // 正規形でない括弧語 (())() は正規形 (()) の関係になる
+        let v = parse(&bc_model("((())())p"));
+        assert_eq!(v["signature"], json!(["(())"]));
+        assert!(v["holds"].is_null());
+    }
+
+    #[test]
     fn glossary_list() {
         set_lang("ja");
         let v = parse(&glossary());
@@ -1708,6 +2068,16 @@ mod tests {
             ordinal_explore("ε_0", 0, 3, 3),
             battle("worm", "2 0 2", 50),
             rules(),
+            bc_fixpoint(3),
+            bc_fixpoint(0),
+            bc_fixpoint(99),
+            bc_compare("(())()", "(())"),
+            bc_compare("(()", "()"),
+            bc_compare(&"()".repeat(41), "()"),
+            bc_model("((()))p |- ()(())p"),
+            bc_model("(())p |- ((()))p"),
+            bc_model("(())p"),
+            bc_model("(()p |- q"),
             ordinal_expr("e^(ω + 1)(1) + φ(1, φ(2, 0)) + ψ(Ω + ψ(Ω·2 + 1)) + 1 + ω + (ω + 1)^2 + ψ(0) + φ(Ω, 0) + ω^ε_0"),
             ordinal_expr("e^1000000(1)"),
             ordinal_expr("(ω + 1)^1000000000"),

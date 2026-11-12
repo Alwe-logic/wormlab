@@ -183,8 +183,11 @@ export function showDefinition(key: string): void {
 /** 証明のタブ（Proof.astro）で、この体系を選ぶよう頼むイベント。 */
 export const PROVE_EVENT = 'wormlab:prove';
 
-/** 証明のタブに移って、体系 id を選ぶ。 */
-export function proveIn(id: string): void {
-  window.dispatchEvent(new CustomEvent<string>(PROVE_EVENT, { detail: id }));
+/** 証明のタブに移って、体系 id を選ぶ。`sequent` を渡すと、そのシーケントを入れて証明する。 */
+export function proveIn(id: string, sequent?: string): void {
+  window.dispatchEvent(new CustomEvent<ProveRequest>(PROVE_EVENT, { detail: sequent === undefined ? id : { id, sequent } }));
   location.hash = 'proof';
 }
+
+/** 証明のタブへの頼み：体系の id だけか、体系とシーケント。 */
+export type ProveRequest = string | { id: string; sequent: string };

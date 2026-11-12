@@ -65,6 +65,8 @@ cargo run -q -- bc "((()))p |- ()(())p"       # Bracket Calculus で判定・導
 cargo run -q -- bc "((((())))) |- ()(((())))" # 括弧語どうしの比較 φ(ε_0,0) > ε_0 を BC で証明
 cargo run --release -p wormlab-core --example bc_sizes   # BC と RC_Γ0 の導出の大きさの比較
 cargo run --release -p wormlab-core --example bc_bounds  # BC の副条件の数と導出の大きさの上界の確認
+cargo run --release -p wormlab-core --example bc_fixpoint -- 7 --gfp   # BC の自律的な意味論：不動点 Ψ を上下から（研究中）
+cargo run --release -p wormlab-core --example bc_direct  # BC の標準モデルによる完全性の証明の検査（研究中）
 cargo run -q -- bwc "((())) |- ()(())"       # 括弧語だけの体系 BWC で判定・導出（BC と照合、--proof・--latex）
 cargo run --release -p wormlab-core --example bwc_sizes  # BWC と BC の導出の大きさの比較
 cargo run -q -- bi "<2>_2<2>_3 T |- <1>(<2>_3 T)"      # RC_BI（Pakhomov–Lazar）で判定：Γ₀ > φ_ω(0)
@@ -135,6 +137,7 @@ cargo run -q -- battle "2 0 2" 10 --latex                      # battle の表
 - [x] RC の導出の構成と検査器（変数・∧ を含む一般の式、順序数モダリティ）
 - [x] Bracket Calculus：順序数を使わない括弧語の比較・正規形、BC の判定・導出・検査器
 - [x] BC の研究：導出の大きさの上界、括弧語だけの体系 BWC、worm の基本列の閉じた形と battle の長さ（G(2) > 2^128）
+- [x] BC の意味論（研究中、論文の草稿）：順序数を使わない Kripke 意味論、不動点 Ψ の反復（bcfix）、標準モデルの検査。Web の Kripke モデルのタブに BC の反例モデルと Ψ
 - [x] ψ 表記（Ω・ψ、任意の引数の崩し）と impredicative worm（Worms and spiders §6）
 - [ ] spiders（Worms and spiders §7、Buchholz 型の ψ_η と Conjecture 7.27）
 - [x] RC_BI 手順 1：式・パーサ、有限モデル M_A による閉じた式の判定（arXiv:2610.20115）
