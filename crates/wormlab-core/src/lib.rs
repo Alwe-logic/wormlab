@@ -26,6 +26,7 @@
 //!   順序数を使わない比較・正規形と、正規形の括弧語を文字にする [`bracket::NfBracket`]
 //! - [`bc`]：Bracket Calculus（モダリティが括弧語の自己完結した体系）の判定・導出・検査
 //! - [`bwc`]：括弧語だけの体系 BWC（WC の BC 版。文字の比較もこの体系の導出で示す）の判定・導出・検査
+//! - [`bcfix`]：BC の自律的な意味論。副条件の大小を意味論自身の妥当性で決める不動点 Ψ の反復（順序数も ◁ も前提にしない）
 //!
 //! Bachmann–Howard まで：
 //! - [`veblen`] の Ω・ψ：Worms and spiders Def 6.19 の ψ（ψ(0) = Γ0、ψ(ε_{Ω+1}) = Bachmann–Howard）。
@@ -51,6 +52,7 @@
 
 pub mod arith;
 pub mod bc;
+pub mod bcfix;
 pub mod bignum;
 pub mod bitset;
 pub mod bracket;
